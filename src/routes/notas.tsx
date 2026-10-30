@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { extractInvoicePdf } from "@/lib/invoice.functions";
+import { fileToBase64, photoToJpeg } from "@/lib/image";
 import { errMsg, loadCostStructure, loadProducts, loadSettings } from "@/lib/data";
 import { fmtBRL, fmtDate, fmtNum, fmtPct, parseDecimal, round2 } from "@/lib/format";
 import {
@@ -27,7 +28,7 @@ import { analyzePrice, type CostStructure } from "@/lib/pricing";
 import type { Product, ShopSettings } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { AlertTriangle, FileUp, Loader2, Plus } from "lucide-react";
+import { AlertTriangle, Camera, FileUp, Loader2, Plus, X } from "lucide-react";
 
 export const Route = createFileRoute("/notas")({
   head: () => ({ meta: [{ title: "Notas fiscais — Squash Tennis Shop" }] }),
@@ -51,14 +52,17 @@ interface InvoiceListItem {
 }
 
 function NotasPage() {
-  const readPdf = useServerFn(extractInvoicePdf);
+  const readInvoice = useServerFn(extractInvoicePdf);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const [photos, setPhotos] = useState<Array<{ base64: string; preview: string }>>([]);
+  const [preparing, setPreparing] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [links, setLinks] = useState<NfLink[]>([]);
   const [settings, setSettings] = useState<ShopSettings | null>(null);
   const [cs, setCs] = useState<CostStructure | null>(null);
   const [history, setHistory] = useState<InvoiceListItem[]>([]);
-  const [draft, setDraft] = useState<(InvoiceDraft & { source: "pdf" | "xml" }) | null>(null);
+  const [draft, setDraft] = useState<(InvoiceDraft & { source: "pdf" | "xml" | "foto" }) | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -87,7 +91,7 @@ function NotasPage() {
     load();
   }, [load]);
 
-  const startReview = (d: InvoiceDraft, source: "pdf" | "xml", prods = products, lks = links) => {
+  const startReview = (d: InvoiceDraft, source: "pdf" | "xml" | "foto", prods = products, lks = links) => {
     if (!d.items.length) return toast.error("Nenhum item encontrado na nota");
     setDraft({ ...d, source });
     setRows(
@@ -98,25 +102,57 @@ function NotasPage() {
     );
   };
 
-  const onFile = async (file: File) => {
+  const isImage = (f: File) => f.type.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name);
+
+  const onFiles = async (list: FileList | null) => {
+    const files = Array.from(list ?? []);
+    if (fileRef.current) fileRef.current.value = "";
+    if (cameraRef.current) cameraRef.current.value = "";
+    if (!files.length) return;
+
+    // fotos: vão se acumulando (uma nota pode ter várias páginas) até você mandar ler
+    if (files.every(isImage)) {
+      setPreparing(true);
+      try {
+        const converted = await Promise.all(files.map((f) => photoToJpeg(f)));
+        setPhotos((ps) => [...ps, ...converted].slice(0, 10));
+      } catch (e) {
+        toast.error(errMsg(e));
+      } finally {
+        setPreparing(false);
+      }
+      return;
+    }
+    if (files.length > 1) return toast.error("Envie um PDF ou XML por vez (fotos podem ser várias)");
+
+    const file = files[0];
     setReading(true);
     try {
       if (file.name.toLowerCase().endsWith(".xml") || file.type.includes("xml")) {
         startReview(parseNfeXml(await file.text()), "xml");
       } else if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-        const buf = new Uint8Array(await file.arrayBuffer());
-        let bin = "";
-        for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-        const d = await readPdf({ data: { pdfBase64: btoa(bin) } });
+        const d = await readInvoice({ data: { files: [{ data: await fileToBase64(file), mediaType: "application/pdf" }] } });
         startReview(d, "pdf");
       } else {
-        toast.error("Envie o PDF (DANFE) ou o XML da nota");
+        toast.error("Envie o XML, o PDF ou fotos da nota");
       }
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
       setReading(false);
-      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const readPhotos = async () => {
+    setReading(true);
+    try {
+      const d = await readInvoice({ data: { files: photos.map((p) => ({ data: p.base64, mediaType: "image/jpeg" as const })) } });
+      startReview(d, "foto");
+      setPhotos([]);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setReading(false);
     }
   };
 
@@ -177,7 +213,7 @@ function NotasPage() {
         ipi: draft.ipi,
         icms_st: draft.icms_st,
         total: draft.total,
-        source: draft.source,
+        source: draft.source === "foto" ? "pdf" : draft.source, // fotos ficam registradas como leitura por IA
       },
       p_items: draft.items.map((it, i) => ({
         product_id: rows[i].productId,
@@ -220,25 +256,60 @@ function NotasPage() {
               <FileUp className="h-10 w-10 text-primary" />
               <div className="font-medium">Importar nota de compra</div>
               <p className="max-w-lg text-sm text-muted-foreground">
-                Envie o <b>XML</b> da NF-e (recomendado: leitura exata) ou o <b>PDF</b> do DANFE (lido por IA). Você revisa
-                tudo antes de dar entrada no estoque.
+                Envie o <b>XML</b> da NF-e (leitura exata), o <b>PDF</b> do DANFE ou <b>fotos</b> da nota tiradas no celular
+                (lidos por IA). Você revisa tudo antes de dar entrada no estoque.
               </p>
               <input
                 ref={fileRef}
                 type="file"
-                accept=".pdf,.xml,application/pdf,text/xml,application/xml"
+                multiple
+                accept=".pdf,.xml,application/pdf,text/xml,application/xml,image/*"
                 className="hidden"
-                onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+                onChange={(e) => onFiles(e.target.files)}
               />
-              <Button size="lg" disabled={reading} onClick={() => fileRef.current?.click()}>
-                {reading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Lendo a nota…
-                  </>
-                ) : (
-                  "Escolher arquivo"
-                )}
-              </Button>
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFiles(e.target.files)} />
+              {reading ? (
+                <div className="flex items-center gap-2 py-2 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Lendo a nota… pode levar até 1 minuto
+                </div>
+              ) : (
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button size="lg" disabled={preparing} onClick={() => cameraRef.current?.click()}>
+                    <Camera className="mr-2 h-4 w-4" /> {photos.length ? "Tirar mais uma foto" : "Tirar foto da nota"}
+                  </Button>
+                  <Button size="lg" variant="outline" disabled={preparing} onClick={() => fileRef.current?.click()}>
+                    Escolher arquivo
+                  </Button>
+                </div>
+              )}
+              {preparing && <div className="text-xs text-muted-foreground">Preparando foto…</div>}
+              {photos.length > 0 && (
+                <div className="w-full max-w-2xl space-y-3 pt-2">
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {photos.map((p, i) => (
+                      <div key={i} className="relative">
+                        <img src={p.preview} alt={`Foto ${i + 1}`} className="h-28 w-20 rounded-md border object-cover" />
+                        <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-xs text-white">{i + 1}</span>
+                        <button
+                          className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white"
+                          onClick={() => setPhotos((ps) => ps.filter((_, j) => j !== i))}
+                          aria-label="Remover foto"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <Button size="lg" className="w-full" disabled={reading || preparing} onClick={readPhotos}>
+                    Ler nota ({photos.length} {photos.length === 1 ? "foto" : "fotos"})
+                  </Button>
+                </div>
+              )}
+              <ul className="max-w-lg list-disc space-y-0.5 pl-5 text-left text-xs text-muted-foreground">
+                <li>Nota apoiada numa mesa, foto de cima, com boa luz e sem sombra do celular.</li>
+                <li>A nota inteira no quadro. Se a lista de itens for longa, tire em partes com um pedaço repetido entre elas.</li>
+                <li>Nota de mais de uma página: uma foto por página, antes de tocar em "Ler nota".</li>
+              </ul>
             </CardContent>
           </Card>
 
@@ -286,7 +357,7 @@ function NotasPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
-                Revisar nota <Badge variant="outline">{draft.source === "pdf" ? "Lida do PDF por IA" : "XML"}</Badge>
+                Revisar nota <Badge variant="outline">{draft.source === "xml" ? "XML" : draft.source === "foto" ? "Lida da foto por IA" : "Lida do PDF por IA"}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-4">
@@ -306,11 +377,14 @@ function NotasPage() {
             </CardContent>
           </Card>
 
-          {check && (!check.productsOk || check.lineErrors > 0 || !check.totalOk) && (
+          {check && (!check.productsOk || check.lineErrors > 0 || !check.totalOk || !!draft.warnings?.length) && (
             <div className="flex gap-2 rounded-md border border-warning bg-warning/10 p-3 text-sm">
               <AlertTriangle className="h-5 w-5 shrink-0 text-warning-foreground" />
               <div>
                 <b>Confira antes de importar:</b>
+                {draft.warnings?.map((w, i) => (
+                  <div key={i}>Leitura duvidosa — {w}</div>
+                ))}
                 {!check.productsOk && (
                   <div>
                     Soma dos itens ({fmtBRL(check.itemsSum)}) é diferente do total de produtos da nota ({fmtBRL(draft.total_products)}) — pode

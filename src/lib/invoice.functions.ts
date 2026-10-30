@@ -3,9 +3,18 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { getServerSecret } from "@/lib/server-env";
 import type { InvoiceDraft } from "@/lib/nfe";
 
-const MAX_PDF_BYTES = 10 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+const MAX_FILES = 10;
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+type ImageType = (typeof IMAGE_TYPES)[number];
 
-const PROMPT = `Este PDF é um DANFE (nota fiscal eletrônica brasileira) de compra de mercadorias de uma loja de artigos de tênis e squash.
+export interface InvoiceFile {
+  data: string; // base64 sem prefixo
+  mediaType: "application/pdf" | ImageType;
+}
+
+const PROMPT = `Este material é um DANFE (nota fiscal eletrônica brasileira) de compra de mercadorias de uma loja de artigos de tênis e squash.
+Pode vir como PDF ou como fotos tiradas no celular. Várias fotos são páginas ou partes da MESMA nota: junte tudo numa nota só e não repita itens que aparecem em duas fotos.
 Extraia os dados da nota para dar entrada no estoque.
 
 Regras:
@@ -16,19 +25,27 @@ Regras:
 - Totais do rodapé ("CÁLCULO DO IMPOSTO"): valor total dos produtos, frete, desconto, outras despesas, IPI, ICMS ST (valor do ICMS substituição) e valor total da nota. Use 0 quando o campo existir e estiver zerado.
 - "access_key": os 44 dígitos da chave de acesso, sem espaços.
 - "issue_date" no formato AAAA-MM-DD.
-- Liste TODOS os itens, em todas as páginas, na ordem da nota. Não invente itens.`;
+- Liste TODOS os itens, em todas as páginas, na ordem da nota. Não invente itens.
+- "reading_notes": se algum número ou descrição estiver borrado, cortado ou ilegível, dê seu melhor palpite no campo e explique aqui, em português curto, qual item/campo ficou duvidoso (ex.: "Item 3: quantidade pouco legível"). Se estiver tudo legível, deixe a lista vazia.`;
 
 /**
- * Lê o PDF de uma nota fiscal com o Claude e devolve os dados estruturados.
+ * Lê o PDF ou as fotos de uma nota fiscal com o Claude e devolve os dados estruturados.
  * Nada é gravado aqui: a tela mostra o resultado para revisão antes de dar
  * entrada no estoque.
  */
 export const extractInvoicePdf = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { pdfBase64: string }) => {
-    if (!input?.pdfBase64) throw new Error("PDF não enviado");
-    if (input.pdfBase64.length * 0.75 > MAX_PDF_BYTES) throw new Error("PDF maior que 10 MB");
-    return input;
+  .inputValidator((input: { files: InvoiceFile[] }) => {
+    const files = input?.files ?? [];
+    if (files.length === 0) throw new Error("Nenhum arquivo enviado");
+    if (files.length > MAX_FILES) throw new Error(`Envie no máximo ${MAX_FILES} fotos por nota`);
+    for (const f of files) {
+      if (!f?.data) throw new Error("Arquivo vazio");
+      if (f.mediaType !== "application/pdf" && !IMAGE_TYPES.includes(f.mediaType as ImageType))
+        throw new Error("Formato não suportado: envie PDF, JPG, PNG ou WEBP");
+    }
+    if (files.reduce((t, f) => t + f.data.length * 0.75, 0) > MAX_TOTAL_BYTES) throw new Error("Arquivos maiores que 20 MB no total");
+    return { files };
   })
   .handler(async ({ data, context }): Promise<InvoiceDraft> => {
     const { data: isAdmin } = await context.supabase.rpc("shop_is_admin");
@@ -76,6 +93,7 @@ export const extractInvoicePdf = createServerFn({ method: "POST" })
       icms_st: money,
       total: money,
       items: z.array(Item),
+      reading_notes: z.array(z.string()),
     });
 
     const client = new Anthropic({ apiKey });
@@ -91,10 +109,11 @@ export const extractInvoicePdf = createServerFn({ method: "POST" })
           {
             role: "user",
             content: [
-              {
-                type: "document",
-                source: { type: "base64", media_type: "application/pdf", data: data.pdfBase64 },
-              },
+              ...data.files.map((f) =>
+                f.mediaType === "application/pdf"
+                  ? ({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data } } as const)
+                  : ({ type: "image", source: { type: "base64", media_type: f.mediaType as ImageType, data: f.data } } as const),
+              ),
               { type: "text", text: PROMPT },
             ],
           },
@@ -109,7 +128,7 @@ export const extractInvoicePdf = createServerFn({ method: "POST" })
       throw err;
     }
 
-    if (response.stop_reason === "refusal") throw new Error("A IA não conseguiu processar este PDF");
+    if (response.stop_reason === "refusal") throw new Error("A IA não conseguiu processar este arquivo");
     if (response.stop_reason === "max_tokens")
       throw new Error("Nota grande demais para ler de uma vez — use o XML da nota");
     const out = response.parsed_output;
@@ -129,6 +148,7 @@ export const extractInvoicePdf = createServerFn({ method: "POST" })
       ipi: out.ipi ?? 0,
       icms_st: out.icms_st ?? 0,
       total: out.total,
+      warnings: out.reading_notes.filter((n) => n.trim()),
       items: out.items.map((i) => ({
         ...i,
         ean: i.ean && /^\d{8,14}$/.test(i.ean) ? i.ean : null,

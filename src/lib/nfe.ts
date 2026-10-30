@@ -36,6 +36,8 @@ export interface InvoiceDraft {
   icms_st: number;
   total: number | null;
   items: InvoiceItemDraft[];
+  /** avisos da leitura por IA (campos ilegíveis na foto/PDF) */
+  warnings?: string[];
 }
 
 /** Mesma normalização do banco (shop_norm): sem acento, maiúsculo, espaço único. */
