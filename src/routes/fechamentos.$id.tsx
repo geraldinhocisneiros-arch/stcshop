@@ -112,6 +112,14 @@ function FechamentoReport() {
           <Box label="Taxas de cartão" value={fmtBRL(s.fees)} />
           <Box label="Lucro bruto" value={fmtBRL(grossProfit)} hint={fmtPct(s.total ? grossProfit / s.total : 0)} />
           <Box label="Canceladas" value={String(s.canceled)} />
+          {(summary.on_account ?? 0) > 0 && <Box label="Vendido no fiado" value={fmtBRL(summary.on_account)} hint="a receber" />}
+          {summary.receipts && Object.keys(summary.receipts).length > 0 && (
+            <Box
+              label="Recebido de clientes"
+              value={fmtBRL(Object.values(summary.receipts).reduce((t, v) => t + Number(v), 0))}
+              hint="dívidas pagas neste caixa"
+            />
+          )}
         </div>
 
         <Card>
@@ -124,6 +132,7 @@ function FechamentoReport() {
                 <TableRow>
                   <TableHead>Forma</TableHead>
                   <TableHead className="text-right">Vendido</TableHead>
+                  <TableHead className="text-right">Recebido de clientes</TableHead>
                   <TableHead className="text-right">Esperado</TableHead>
                   <TableHead className="text-right">Conferido</TableHead>
                   <TableHead className="text-right">Diferença</TableHead>
@@ -138,6 +147,7 @@ function FechamentoReport() {
                     <TableRow key={c}>
                       <TableCell>{label(c)}</TableCell>
                       <TableCell className="text-right">{fmtBRL(summary.by_method[c]?.amount ?? 0)}</TableCell>
+                      <TableCell className="text-right">{fmtBRL(summary.receipts?.[c] ?? 0)}</TableCell>
                       <TableCell className="text-right">{fmtBRL(exp)}</TableCell>
                       <TableCell className="text-right">{cnt === null ? "—" : fmtBRL(cnt)}</TableCell>
                       <TableCell className={`text-right ${diff && diff < 0 ? "text-destructive" : ""}`}>

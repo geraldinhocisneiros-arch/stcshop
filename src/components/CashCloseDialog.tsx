@@ -126,8 +126,21 @@ export function CashCloseDialog({
                   </div>
                 );
               })}
+              {(summary.on_account ?? 0) > 0 && (
+                <p className="text-xs">
+                  Vendido na conta de clientes (fiado): <b>{fmtBRL(summary.on_account)}</b> — não entra no caixa, fica em Pendências.
+                </p>
+              )}
+              {summary.receipts && Object.keys(summary.receipts).length > 0 && (
+                <p className="text-xs">
+                  Recebido de dívidas de clientes (já somado no esperado):{" "}
+                  {Object.entries(summary.receipts)
+                    .map(([k, v]) => `${label(k)} ${fmtBRL(v)}`)
+                    .join(" · ")}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
-                Dinheiro esperado = troco inicial {fmtBRL(session.opening_amount)} + vendas em dinheiro + suprimentos{" "}
+                Dinheiro esperado = troco inicial {fmtBRL(session.opening_amount)} + vendas e recebimentos em dinheiro + suprimentos{" "}
                 {fmtBRL(summary.suprimento)} − sangrias {fmtBRL(summary.sangria)}.
               </p>
             </div>

@@ -46,6 +46,7 @@ function ConfigPage() {
   const removeUser = useServerFn(removeShopUser);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [allowNegative, setAllowNegative] = useState(false);
+  const [pixKey, setPixKey] = useState("");
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [users, setUsers] = useState<ShopUser[]>([]);
   const [nu, setNu] = useState({ fullName: "", email: "", password: "", role: "vendedor" as "admin" | "vendedor" });
@@ -55,6 +56,7 @@ function ConfigPage() {
       const [s, m, u] = await Promise.all([loadSettings(), loadMethods(), supabase.from("shop_user_roles").select("*").order("full_name")]);
       setSettings(Object.fromEntries(FIELDS.map((f) => [f.key, String(s[f.key]).replace(".", ",")])));
       setAllowNegative(s.allow_negative_stock);
+      setPixKey(s.pix_key ?? "");
       setMethods(m);
       setUsers((u.data ?? []) as ShopUser[]);
     } catch (e) {
@@ -66,7 +68,11 @@ function ConfigPage() {
   }, [load]);
 
   const saveSettings = async () => {
-    const row: Record<string, unknown> = { allow_negative_stock: allowNegative, updated_at: new Date().toISOString() };
+    const row: Record<string, unknown> = {
+      allow_negative_stock: allowNegative,
+      pix_key: pixKey.trim() || null,
+      updated_at: new Date().toISOString(),
+    };
     for (const f of FIELDS) row[f.key] = parseDecimal(settings[f.key]);
     const { error } = await supabase.from("shop_settings").update(row).eq("id", 1);
     if (error) return toast.error(error.message);
@@ -96,6 +102,13 @@ function ConfigPage() {
                 <Input value={settings[f.key] ?? ""} onChange={(e) => setSettings({ ...settings, [f.key]: e.target.value })} />
               </div>
             ))}
+            <div className="grid gap-1 md:grid-cols-[1fr_220px] md:items-center">
+              <div>
+                <Label>Chave PIX da loja</Label>
+                <p className="text-xs text-muted-foreground">Vai na mensagem de cobrança do WhatsApp.</p>
+              </div>
+              <Input value={pixKey} onChange={(e) => setPixKey(e.target.value)} placeholder="CNPJ, e-mail ou telefone" />
+            </div>
             <div className="flex items-center gap-2">
               <Switch checked={allowNegative} onCheckedChange={setAllowNegative} id="neg" />
               <Label htmlFor="neg">Permitir vender sem estoque no sistema (estoque negativo)</Label>

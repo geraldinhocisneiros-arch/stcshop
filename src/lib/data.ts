@@ -2,7 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { fetchAll } from "./fetchAll";
 import { endOfDayISO, isoDay, startOfDayISO } from "./format";
 import { buildCostStructure, type CostStructure } from "./pricing";
-import type { Category, Cost, Supplier, PaymentMethod, Product, SaleLine, ShopSettings } from "./types";
+import type { Category, Cost, Customer, CustomerEntry, Supplier, PaymentMethod, Product, SaleLine, ShopSettings } from "./types";
 
 export async function loadProducts(opts: { onlyActive?: boolean } = {}): Promise<Product[]> {
   return fetchAll<Product>("shop_products", "*", {
@@ -26,6 +26,53 @@ export async function loadSuppliers(): Promise<Supplier[]> {
   const { data, error } = await supabase.from("shop_suppliers").select("*").order("name");
   if (error) throw error;
   return (data ?? []) as Supplier[];
+}
+
+export type CustomerWithBalance = Customer & { balance: number; last_debit_at: string | null; last_payment_at: string | null };
+
+export async function loadCustomers(): Promise<CustomerWithBalance[]> {
+  const [c, b] = await Promise.all([
+    fetchAll<Customer>("shop_customers", "*", { build: (q) => q.order("name") }),
+    fetchAll<{ customer_id: string; balance: number; last_debit_at: string | null; last_payment_at: string | null }>(
+      "shop_customer_balances",
+      "customer_id, balance, last_debit_at, last_payment_at",
+    ),
+  ]);
+  const by = new Map(b.map((x) => [x.customer_id, x]));
+  return c.map((x) => ({
+    ...x,
+    balance: Number(by.get(x.id)?.balance ?? 0),
+    last_debit_at: by.get(x.id)?.last_debit_at ?? null,
+    last_payment_at: by.get(x.id)?.last_payment_at ?? null,
+  }));
+}
+
+export async function loadCustomerEntries(customerIds?: string[]): Promise<CustomerEntry[]> {
+  if (customerIds && customerIds.length === 0) return [];
+  return fetchAll<CustomerEntry>("shop_customer_entries", "*", {
+    build: (q) => (customerIds ? q.in("customer_id", customerIds) : q).order("created_at"),
+  });
+}
+
+/** "Venda nº 12: 2× Bola Wilson, 1× Overgrip" por venda, para extrato e cobrança. */
+export async function loadSaleDescriptions(saleIds: string[]): Promise<Record<string, { number: number; items: string }>> {
+  const ids = [...new Set(saleIds.filter(Boolean))];
+  if (!ids.length) return {};
+  const out: Record<string, { number: number; items: string }> = {};
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await supabase
+      .from("shop_sales")
+      .select("id, number, shop_sale_items(description, qty)")
+      .in("id", ids.slice(i, i + 200));
+    if (error) throw error;
+    for (const s of (data ?? []) as Array<{ id: string; number: number; shop_sale_items: Array<{ description: string; qty: number }> }>) {
+      out[s.id] = {
+        number: s.number,
+        items: s.shop_sale_items.map((it) => `${Number(it.qty) === 1 ? "" : `${String(Number(it.qty)).replace(".", ",")}× `}${it.description}`).join(", "),
+      };
+    }
+  }
+  return out;
 }
 
 export async function loadSettings(): Promise<ShopSettings> {

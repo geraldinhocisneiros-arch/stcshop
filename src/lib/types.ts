@@ -43,6 +43,7 @@ export interface ShopSettings {
   max_promo_discount_pct: number;
   max_seller_discount_pct: number;
   expected_monthly_revenue: number;
+  pix_key: string | null;
 }
 
 export interface Cost {
@@ -121,6 +122,10 @@ export interface CashSummary {
   sangria: number;
   suprimento: number;
   expected: Record<string, number>;
+  /** recebimentos de dívidas de clientes neste caixa, por forma */
+  receipts?: Record<string, number>;
+  /** vendido na conta do cliente (fiado) neste caixa */
+  on_account?: number;
 }
 
 export interface StringingOrder {
@@ -171,3 +176,27 @@ export const fmtCnpj = (v: string | null | undefined) => {
   const d = (v ?? "").replace(/\D/g, "");
   return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : v || "";
 };
+
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string | null;
+  document: string | null;
+  email: string | null;
+  credit_limit: number | null;
+  notes: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export interface CustomerEntry {
+  id: string;
+  customer_id: string;
+  kind: "debito" | "pagamento" | "estorno" | "ajuste_debito" | "ajuste_credito";
+  amount: number;
+  sale_id: string | null;
+  session_id: string | null;
+  method: string | null;
+  notes: string | null;
+  created_at: string;
+}

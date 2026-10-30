@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { CashCloseDialog } from "@/components/CashCloseDialog";
+import { CustomerPicker } from "@/components/CustomerPicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { errMsg, loadMethods, loadProducts } from "@/lib/data";
+import { errMsg, loadCustomers, loadMethods, loadProducts, type CustomerWithBalance } from "@/lib/data";
 import { effectivePrice, fmtBRL, fmtDateTime, fmtNum, matchesSearch, parseDecimal, round2 } from "@/lib/format";
 import type { CashSession, PaymentMethod, Product, StringingOrder } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -49,7 +50,7 @@ function CaixaPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discountInput, setDiscountInput] = useState("");
   const [discountMode, setDiscountMode] = useState<"valor" | "pct">("valor");
-  const [customer, setCustomer] = useState("");
+  const [customer, setCustomer] = useState<CustomerWithBalance | null>(null);
   const [payments, setPayments] = useState<PaymentLine[]>([]);
   const [cashReceived, setCashReceived] = useState("");
   const [orderRef, setOrderRef] = useState<StringingOrder | null>(null);
@@ -91,7 +92,14 @@ function CaixaPage() {
       const str = products.find((p) => p.id === o.string_product_id);
       if (str) items.push({ product: str, qty: 1, unit_price: effectivePrice(str) });
       setCart(items);
-      setCustomer(o.customer_name);
+      // tenta achar o cliente cadastrado pelo telefone (ou nome) da ordem
+      const digits = (o.customer_phone ?? "").replace(/\D/g, "");
+      const all = await loadCustomers().catch(() => []);
+      setCustomer(
+        all.find((c) => digits && (c.phone ?? "").replace(/\D/g, "").endsWith(digits.slice(-8))) ??
+          all.find((c) => c.name.trim().toLowerCase() === o.customer_name.trim().toLowerCase()) ??
+          null,
+      );
       setOrderRef(o);
     })();
   }, [ordem, products]);
@@ -153,7 +161,7 @@ function CaixaPage() {
     setCart([]);
     setPayments([]);
     setDiscountInput("");
-    setCustomer("");
+    setCustomer(null);
     setCashReceived("");
     setOrderRef(null);
     if (ordem) navigate({ to: "/caixa", search: { ordem: undefined } });
@@ -163,19 +171,26 @@ function CaixaPage() {
     if (cart.length === 0) return toast.error("Carrinho vazio");
     if (Math.abs(remaining) > 0.009) return toast.error("Os pagamentos precisam fechar o total");
     if (cashLine && parseDecimal(cashReceived) > 0 && change < 0) return toast.error("Valor recebido em dinheiro é menor que o devido");
+    if (payments.some((p) => p.method === "conta") && !customer) return toast.error("Escolha o cliente para lançar na conta");
     setBusy(true);
     const { data, error } = await supabase.rpc("shop_finalize_sale", {
       p_items: cart.map((i) => ({ product_id: i.product.id, qty: i.qty, unit_price: i.unit_price })),
       p_payments: payments,
       p_discount: discount,
-      p_customer_name: customer || null,
+      p_customer_name: customer ? null : (orderRef?.customer_name ?? null),
       p_notes: null,
       p_stringing_order_id: orderRef?.id ?? null,
+      p_customer_id: customer?.id ?? null,
     });
     setBusy(false);
     if (error) return toast.error(error.message);
     const r = data as { number: number; total: number };
-    toast.success(`Venda nº ${r.number} registrada — ${fmtBRL(r.total)}${change > 0 ? ` · troco ${fmtBRL(change)}` : ""}`);
+    const onAccount = payments.find((p) => p.method === "conta")?.amount ?? 0;
+    toast.success(
+      `Venda nº ${r.number} registrada — ${fmtBRL(r.total)}${change > 0 ? ` · troco ${fmtBRL(change)}` : ""}${
+        onAccount > 0 ? ` · ${fmtBRL(onAccount)} na conta de ${customer?.name}` : ""
+      }`,
+    );
     reset();
     load();
   };
@@ -325,7 +340,25 @@ function CaixaPage() {
             <CardContent className="space-y-4">
               <div className="space-y-1">
                 <Label>Cliente (opcional)</Label>
-                <Input value={customer} onChange={(e) => setCustomer(e.target.value)} />
+                <CustomerPicker
+                  value={customer}
+                  onChange={(c) => {
+                    setCustomer(c);
+                    if (!c) setPayments((ps) => ps.filter((p) => p.method !== "conta"));
+                  }}
+                />
+                {customer && (
+                  <p className="text-xs text-muted-foreground">
+                    {customer.balance > 0 ? (
+                      <span className="text-destructive">Já deve {fmtBRL(customer.balance)}</span>
+                    ) : customer.balance < 0 ? (
+                      <span className="text-success">Tem {fmtBRL(-customer.balance)} de crédito</span>
+                    ) : (
+                      "Conta em dia"
+                    )}
+                    {customer.credit_limit != null && ` · limite ${fmtBRL(customer.credit_limit)}`}
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <Label>Desconto</Label>
@@ -361,8 +394,15 @@ function CaixaPage() {
 
               <div className="grid grid-cols-2 gap-2">
                 {methods.map((m) => (
-                  <Button key={m.code} variant="outline" disabled={remaining <= 0 || cart.length === 0} onClick={() => addPayment(m.code)}>
-                    {m.label}
+                  <Button
+                    key={m.code}
+                    variant="outline"
+                    className={m.code === "conta" ? "col-span-2" : undefined}
+                    disabled={remaining <= 0 || cart.length === 0 || (m.code === "conta" && !customer)}
+                    title={m.code === "conta" && !customer ? "Escolha o cliente para lançar na conta" : undefined}
+                    onClick={() => addPayment(m.code)}
+                  >
+                    {m.code === "conta" ? (customer ? `Na conta de ${customer.name.split(" ")[0]}` : "Conta do cliente (escolha o cliente)") : m.label}
                   </Button>
                 ))}
               </div>

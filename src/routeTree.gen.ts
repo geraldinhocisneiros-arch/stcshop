@@ -19,9 +19,12 @@ import { Route as FornecedoresRouteImport } from './routes/fornecedores'
 import { Route as InteligenciaRouteImport } from './routes/inteligencia'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as NotasRouteImport } from './routes/notas'
+import { Route as PendenciasRouteImport } from './routes/pendencias'
 import { Route as ProdutosRouteImport } from './routes/produtos'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
 import { Route as VendasRouteImport } from './routes/vendas'
+import { Route as ClientesIndexRouteImport } from './routes/clientes.index'
+import { Route as ClientesIdRouteImport } from './routes/clientes.$id'
 import { Route as FechamentosIndexRouteImport } from './routes/fechamentos.index'
 import { Route as FechamentosIdRouteImport } from './routes/fechamentos.$id'
 
@@ -75,6 +78,11 @@ const NotasRoute = NotasRouteImport.update({
   path: '/notas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PendenciasRoute = PendenciasRouteImport.update({
+  id: '/pendencias',
+  path: '/pendencias',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProdutosRoute = ProdutosRouteImport.update({
   id: '/produtos',
   path: '/produtos',
@@ -88,6 +96,16 @@ const RelatoriosRoute = RelatoriosRouteImport.update({
 const VendasRoute = VendasRouteImport.update({
   id: '/vendas',
   path: '/vendas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientesIndexRoute = ClientesIndexRouteImport.update({
+  id: '/clientes/',
+  path: '/clientes/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientesIdRoute = ClientesIdRouteImport.update({
+  id: '/clientes/$id',
+  path: '/clientes/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FechamentosIndexRoute = FechamentosIndexRouteImport.update({
@@ -112,10 +130,13 @@ export interface FileRoutesByFullPath {
   '/inteligencia': typeof InteligenciaRoute
   '/login': typeof LoginRoute
   '/notas': typeof NotasRoute
+  '/pendencias': typeof PendenciasRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
+  '/clientes/$id': typeof ClientesIdRoute
   '/fechamentos/$id': typeof FechamentosIdRoute
+  '/clientes/': typeof ClientesIndexRoute
   '/fechamentos/': typeof FechamentosIndexRoute
 }
 export interface FileRoutesByTo {
@@ -129,10 +150,13 @@ export interface FileRoutesByTo {
   '/inteligencia': typeof InteligenciaRoute
   '/login': typeof LoginRoute
   '/notas': typeof NotasRoute
+  '/pendencias': typeof PendenciasRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
+  '/clientes/$id': typeof ClientesIdRoute
   '/fechamentos/$id': typeof FechamentosIdRoute
+  '/clientes': typeof ClientesIndexRoute
   '/fechamentos': typeof FechamentosIndexRoute
 }
 export interface FileRoutesById {
@@ -147,10 +171,13 @@ export interface FileRoutesById {
   '/inteligencia': typeof InteligenciaRoute
   '/login': typeof LoginRoute
   '/notas': typeof NotasRoute
+  '/pendencias': typeof PendenciasRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
   '/vendas': typeof VendasRoute
+  '/clientes/$id': typeof ClientesIdRoute
   '/fechamentos/$id': typeof FechamentosIdRoute
+  '/clientes/': typeof ClientesIndexRoute
   '/fechamentos/': typeof FechamentosIndexRoute
 }
 export interface FileRouteTypes {
@@ -166,10 +193,13 @@ export interface FileRouteTypes {
     | '/inteligencia'
     | '/login'
     | '/notas'
+    | '/pendencias'
     | '/produtos'
     | '/relatorios'
     | '/vendas'
+    | '/clientes/$id'
     | '/fechamentos/$id'
+    | '/clientes/'
     | '/fechamentos/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -183,10 +213,13 @@ export interface FileRouteTypes {
     | '/inteligencia'
     | '/login'
     | '/notas'
+    | '/pendencias'
     | '/produtos'
     | '/relatorios'
     | '/vendas'
+    | '/clientes/$id'
     | '/fechamentos/$id'
+    | '/clientes'
     | '/fechamentos'
   id:
     | '__root__'
@@ -200,10 +233,13 @@ export interface FileRouteTypes {
     | '/inteligencia'
     | '/login'
     | '/notas'
+    | '/pendencias'
     | '/produtos'
     | '/relatorios'
     | '/vendas'
+    | '/clientes/$id'
     | '/fechamentos/$id'
+    | '/clientes/'
     | '/fechamentos/'
   fileRoutesById: FileRoutesById
 }
@@ -218,10 +254,13 @@ export interface RootRouteChildren {
   InteligenciaRoute: typeof InteligenciaRoute
   LoginRoute: typeof LoginRoute
   NotasRoute: typeof NotasRoute
+  PendenciasRoute: typeof PendenciasRoute
   ProdutosRoute: typeof ProdutosRoute
   RelatoriosRoute: typeof RelatoriosRoute
   VendasRoute: typeof VendasRoute
+  ClientesIdRoute: typeof ClientesIdRoute
   FechamentosIdRoute: typeof FechamentosIdRoute
+  ClientesIndexRoute: typeof ClientesIndexRoute
   FechamentosIndexRoute: typeof FechamentosIndexRoute
 }
 
@@ -297,6 +336,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NotasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pendencias': {
+      id: '/pendencias'
+      path: '/pendencias'
+      fullPath: '/pendencias'
+      preLoaderRoute: typeof PendenciasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/produtos': {
       id: '/produtos'
       path: '/produtos'
@@ -316,6 +362,20 @@ declare module '@tanstack/react-router' {
       path: '/vendas'
       fullPath: '/vendas'
       preLoaderRoute: typeof VendasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/clientes/': {
+      id: '/clientes/'
+      path: '/clientes'
+      fullPath: '/clientes/'
+      preLoaderRoute: typeof ClientesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/clientes/$id': {
+      id: '/clientes/$id'
+      path: '/clientes/$id'
+      fullPath: '/clientes/$id'
+      preLoaderRoute: typeof ClientesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/fechamentos/': {
@@ -346,10 +406,13 @@ const rootRouteChildren: RootRouteChildren = {
   InteligenciaRoute: InteligenciaRoute,
   LoginRoute: LoginRoute,
   NotasRoute: NotasRoute,
+  PendenciasRoute: PendenciasRoute,
   ProdutosRoute: ProdutosRoute,
   RelatoriosRoute: RelatoriosRoute,
   VendasRoute: VendasRoute,
+  ClientesIdRoute: ClientesIdRoute,
   FechamentosIdRoute: FechamentosIdRoute,
+  ClientesIndexRoute: ClientesIndexRoute,
   FechamentosIndexRoute: FechamentosIndexRoute,
 }
 export const routeTree = rootRouteImport
