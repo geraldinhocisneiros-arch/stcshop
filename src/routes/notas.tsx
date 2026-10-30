@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
@@ -232,6 +233,15 @@ function NotasPage() {
       lineErrors,
       totalCost,
       totalOk: draft.total == null || Math.abs(totalCost - draft.total) <= 0.5,
+      // custo passou do total da nota exatamente pelo valor do ST ou do IPI: o unitário já tinha esse imposto
+      doubled:
+        draft.total == null
+          ? null
+          : !draft.st_included && draft.icms_st > 0 && Math.abs(totalCost - draft.total - draft.icms_st) <= 0.5
+            ? "ICMS-ST"
+            : draft.ipi > 0 && Math.abs(totalCost - draft.total - draft.ipi) <= 0.5
+              ? "IPI"
+              : null,
     };
   }, [draft, costs]);
 
@@ -251,7 +261,12 @@ function NotasPage() {
   // campos numéricos só são lidos ao sair do campo, para não atrapalhar a digitação ("12," etc.)
   const numHeader = (k: keyof InvoiceDraft) => ({
     defaultValue: dec(draft?.[k] as number | null),
-    onBlur: (e: React.FocusEvent<HTMLInputElement>) => draft && setDraft({ ...draft, [k]: parseDecimal(e.target.value) }),
+    onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+      if (!draft) return;
+      // totais em branco = "não informado" (não vira zero, para não gerar aviso falso)
+      const blank = e.target.value.trim() === "" && (k === "total" || k === "total_products");
+      setDraft({ ...draft, [k]: blank ? null : parseDecimal(e.target.value) });
+    },
   });
 
   const unmatched = rows.filter((r) => !r.productId).length;
@@ -276,6 +291,7 @@ function NotasPage() {
       icms_st: draft.icms_st,
       pis: draft.pis,
       approx_taxes: draft.approx_taxes,
+      st_included: !!draft.st_included,
       total: draft.total,
       source: draft.source === "foto" ? "pdf" : draft.source, // fotos ficam registradas como leitura por IA
     };
@@ -340,6 +356,7 @@ function NotasPage() {
       icms_st: Number(h.icms_st ?? 0),
       pis: Number(h.pis ?? 0),
       approx_taxes: Number(h.approx_taxes ?? 0),
+      st_included: !!h.st_included,
       total: h.total,
       source: h.source === "xml" ? "xml" : h.source === "manual" ? "manual" : "pdf",
       items: list.map((it) => ({
@@ -563,7 +580,17 @@ function NotasPage() {
               <Field label="Desconto" {...numHeader("discount")} />
               <Field label="Outras despesas" {...numHeader("other_costs")} />
               <Field label="IPI" {...numHeader("ipi")} />
-              <Field label="ICMS ST" {...numHeader("icms_st")} />
+              <div className="space-y-1">
+                <Field label="ICMS ST" {...numHeader("icms_st")} />
+                <label className="flex items-start gap-2 text-xs">
+                  <Checkbox
+                    checked={!!draft.st_included}
+                    onCheckedChange={(v) => setDraft({ ...draft, st_included: v === true })}
+                    className="mt-0.5"
+                  />
+                  <span>ICMS-ST já incluso no valor dos produtos (só registrar, não somar no custo)</span>
+                </label>
+              </div>
               <Field label="Total produtos (nota)" {...numHeader("total_products")} />
               <Field label="Total da nota" {...numHeader("total")} />
               <Field label="PIS" {...numHeader("pis")} />
@@ -589,12 +616,22 @@ function NotasPage() {
                   </div>
                 )}
                 {check.lineErrors > 0 && <div>{check.lineErrors} item(ns) com quantidade × unitário diferente do total da linha.</div>}
-                {!check.totalOk && (
-                  <div>
-                    Custo total calculado ({fmtBRL(check.totalCost)}) difere do total da nota ({fmtBRL(draft.total)}). Verifique frete,
-                    IPI, ST e desconto.
-                  </div>
-                )}
+                {!check.totalOk &&
+                  (check.doubled ? (
+                    <div>
+                      O {check.doubled} parece estar contado duas vezes: o custo calculado ({fmtBRL(check.totalCost)}) passa do total da
+                      nota ({fmtBRL(draft.total)}) exatamente pelo valor do {check.doubled}. Os valores unitários digitados já incluem o{" "}
+                      {check.doubled}?{" "}
+                      {check.doubled === "ICMS-ST"
+                        ? 'Se na nota o ST já vem dentro do V. UNIT., marque "ICMS-ST já incluso no valor dos produtos".'
+                        : "Use o valor unitário sem o imposto ou zere o campo IPI."}
+                    </div>
+                  ) : (
+                    <div>
+                      Custo total calculado ({fmtBRL(check.totalCost)}) difere do total da nota ({fmtBRL(draft.total)}). Verifique frete,
+                      IPI, ST e desconto.
+                    </div>
+                  ))}
               </div>
             </div>
           )}

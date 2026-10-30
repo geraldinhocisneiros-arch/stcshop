@@ -51,6 +51,12 @@ describe("effectiveUnitCosts", () => {
     const sum = costs.reduce((s, c, i) => s + c * d.items[i].qty, 0);
     expect(sum).toBeCloseTo(d.total!, 2);
   });
+  test("ICMS-ST já incluso no unitário não é somado de novo", () => {
+    const d = parseNfeXml(XML);
+    const [bola] = effectiveUnitCosts({ ...d, st_included: true });
+    // sem os R$ 12 de ST: (240 + 50*0.24) / 12 = 21
+    expect(bola).toBeCloseTo(21, 4);
+  });
   test("desconto só no rodapé é rateado", () => {
     const d: InvoiceDraft = {
       access_key: null, number: null, series: null, issue_date: null, supplier_name: null, supplier_cnpj: null,

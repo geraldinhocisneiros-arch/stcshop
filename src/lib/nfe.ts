@@ -37,6 +37,8 @@ export interface InvoiceDraft {
   /** informativos: já embutidos no preço, não entram no custo */
   pis: number;
   approx_taxes: number;
+  /** o ICMS-ST já está dentro do valor unitário dos itens: registra, mas não soma de novo no custo */
+  st_included?: boolean;
   total: number | null;
   items: InvoiceItemDraft[];
   /** avisos da leitura por IA (campos ilegíveis na foto/PDF) */
@@ -62,7 +64,11 @@ export const onlyDigits = (s: string | null | undefined) => (s ?? "").replace(/\
  * valor de cada item. É isso que faz o custo do produto ser o custo REAL,
  * não só o preço unitário impresso.
  */
-export function effectiveUnitCosts(draft: InvoiceDraft): number[] {
+export function effectiveUnitCosts(input: InvoiceDraft): number[] {
+  // ST já incluso no unitário: não soma de novo
+  const draft: InvoiceDraft = input.st_included
+    ? { ...input, icms_st: 0, items: input.items.map((i) => ({ ...i, icms_st: null })) }
+    : input;
   const items = draft.items;
   const base = items.reduce((s, i) => s + i.total, 0);
   const sumItem = (k: "freight" | "other" | "ipi" | "icms_st" | "discount") =>

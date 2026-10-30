@@ -1,11 +1,16 @@
--- PIS e valor aproximado dos tributos na nota de entrada.
+-- PIS e valor aproximado dos tributos na nota de entrada, e a marcação
+-- "ICMS-ST já incluso no valor dos produtos" (há fornecedores cujo DANFE
+-- traz o V. UNIT. com o ST dentro; aí o ST é só registrado).
+--
+-- PIS e tributos aproximados:
 -- São informativos: já estão embutidos no preço do fornecedor, então NÃO
 -- entram no custo do produto (o custo soma frete, IPI, ICMS-ST e outras
 -- despesas, menos desconto).
 
 alter table public.shop_invoices
   add column pis numeric(12,2) not null default 0,
-  add column approx_taxes numeric(12,2) not null default 0;
+  add column approx_taxes numeric(12,2) not null default 0,
+  add column st_included boolean not null default false;
 
 create or replace function public.shop_import_invoice(p_header jsonb, p_items jsonb)
 returns uuid language plpgsql security definer set search_path = public as $$
@@ -20,13 +25,14 @@ begin
   end if;
 
   insert into shop_invoices (access_key, number, series, supplier_id, supplier_name, supplier_cnpj, issue_date,
-    total_products, freight, discount, other_costs, ipi, icms_st, pis, approx_taxes, total, source, created_by)
+    total_products, freight, discount, other_costs, ipi, icms_st, pis, approx_taxes, st_included, total, source, created_by)
   values (nullif(v_key, ''), p_header->>'number', p_header->>'series', public.shop__resolve_supplier(p_header),
     p_header->>'supplier_name', nullif(v_cnpj, ''), nullif(p_header->>'issue_date', '')::date,
     nullif(p_header->>'total_products', '')::numeric, coalesce(nullif(p_header->>'freight', '')::numeric, 0),
     coalesce(nullif(p_header->>'discount', '')::numeric, 0), coalesce(nullif(p_header->>'other_costs', '')::numeric, 0),
     coalesce(nullif(p_header->>'ipi', '')::numeric, 0), coalesce(nullif(p_header->>'icms_st', '')::numeric, 0),
     coalesce(nullif(p_header->>'pis', '')::numeric, 0), coalesce(nullif(p_header->>'approx_taxes', '')::numeric, 0),
+    coalesce((p_header->>'st_included')::boolean, false),
     nullif(p_header->>'total', '')::numeric, coalesce(p_header->>'source', 'pdf'), auth.uid())
   returning id into v_inv;
 
@@ -62,6 +68,7 @@ begin
     icms_st = coalesce(nullif(p_header->>'icms_st', '')::numeric, 0),
     pis = coalesce(nullif(p_header->>'pis', '')::numeric, 0),
     approx_taxes = coalesce(nullif(p_header->>'approx_taxes', '')::numeric, 0),
+    st_included = coalesce((p_header->>'st_included')::boolean, false),
     total = nullif(p_header->>'total', '')::numeric
   where id = p_invoice_id;
 
