@@ -143,3 +143,8 @@ export interface StringingOrder {
   ready_at: string | null;
   delivered_at: string | null;
 }
+
+export interface Category {
+  id: string;
+  name: string;
+}

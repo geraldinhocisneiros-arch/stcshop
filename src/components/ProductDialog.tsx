@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CategoryPicker } from "@/components/CategoryPicker";
 import { supabase } from "@/integrations/supabase/client";
 import { fmtBRL, fmtPct, parseDecimal, round2 } from "@/lib/format";
 import { analyzePrice, PRICE_STATUS_LABEL, type CostStructure } from "@/lib/pricing";
@@ -23,7 +24,6 @@ export function ProductDialog({
   onOpenChange,
   product,
   prefill,
-  categories,
   cs,
   targetMargin,
   onSaved,
@@ -33,7 +33,6 @@ export function ProductDialog({
   onOpenChange: (v: boolean) => void;
   product?: Product | null;
   prefill?: ProductPrefill;
-  categories: string[];
   cs?: CostStructure | null;
   targetMargin?: number;
   onSaved: (p: Product) => void;
@@ -182,12 +181,7 @@ export function ProductDialog({
           )}
           <div className="space-y-1">
             <Label>Categoria</Label>
-            <Input value={f.category ?? ""} onChange={set("category")} list="cats" placeholder="Ex.: Bolas, Cordas, Raquetes" />
-            <datalist id="cats">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
+            <CategoryPicker value={f.category ?? ""} onChange={(category) => setF({ ...f, category })} />
           </div>
           <div className="space-y-1">
             <Label>Marca</Label>

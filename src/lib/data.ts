@@ -2,12 +2,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { fetchAll } from "./fetchAll";
 import { endOfDayISO, isoDay, startOfDayISO } from "./format";
 import { buildCostStructure, type CostStructure } from "./pricing";
-import type { Cost, PaymentMethod, Product, SaleLine, ShopSettings } from "./types";
+import type { Category, Cost, PaymentMethod, Product, SaleLine, ShopSettings } from "./types";
 
 export async function loadProducts(opts: { onlyActive?: boolean } = {}): Promise<Product[]> {
   return fetchAll<Product>("shop_products", "*", {
     build: (q) => (opts.onlyActive ? q.eq("active", true) : q).order("name"),
   });
+}
+
+export async function loadCategories(): Promise<Category[]> {
+  const { data, error } = await supabase.from("shop_categories").select("id, name").order("name");
+  if (error) throw error;
+  return (data ?? []) as Category[];
 }
 
 export async function loadSettings(): Promise<ShopSettings> {

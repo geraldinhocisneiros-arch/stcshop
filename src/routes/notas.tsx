@@ -444,7 +444,6 @@ function NotasPage() {
         open={creatingFor !== null}
         onOpenChange={(v) => !v && setCreatingFor(null)}
         prefill={prefill}
-        categories={[...new Set(products.map((p) => p.category).filter(Boolean) as string[])]}
         cs={cs}
         targetMargin={target}
         allowInitialStock={false}

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
+import { CategoriesDialog } from "@/components/CategoriesDialog";
 import { ProductDialog } from "@/components/ProductDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,7 +16,7 @@ import { analyzePrice, PRICE_STATUS_LABEL, type CostStructure } from "@/lib/pric
 import type { Product, ShopSettings } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Tags } from "lucide-react";
 
 export const Route = createFileRoute("/produtos")({
   head: () => ({ meta: [{ title: "Produtos — Squash Tennis Shop" }] }),
@@ -32,6 +33,7 @@ function ProdutosPage() {
   const [status, setStatus] = useState("ativos");
   const [editing, setEditing] = useState<Product | null>(null);
   const [dialog, setDialog] = useState(false);
+  const [catDialog, setCatDialog] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -68,15 +70,20 @@ function ProdutosPage() {
       title="Produtos e serviços"
       actions={
         isAdmin && (
-          <Button
-            size="sm"
-            onClick={() => {
-              setEditing(null);
-              setDialog(true);
-            }}
-          >
-            <Plus className="mr-1 h-4 w-4" /> Novo
-          </Button>
+          <>
+            <Button size="sm" variant="outline" onClick={() => setCatDialog(true)}>
+              <Tags className="mr-1 h-4 w-4" /> Categorias
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setEditing(null);
+                setDialog(true);
+              }}
+            >
+              <Plus className="mr-1 h-4 w-4" /> Novo
+            </Button>
+          </>
         )
       }
     >
@@ -195,11 +202,11 @@ function ProdutosPage() {
         open={dialog}
         onOpenChange={setDialog}
         product={editing}
-        categories={categories}
         cs={cs}
         targetMargin={target}
         onSaved={load}
       />
+      <CategoriesDialog open={catDialog} onOpenChange={setCatDialog} products={products} onChanged={load} />
     </AppLayout>
   );
 }
