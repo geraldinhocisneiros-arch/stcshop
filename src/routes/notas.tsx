@@ -11,10 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
-import { extractInvoicePdf } from "@/lib/invoice.functions";
+import { extractInvoicePdf, invoiceAiAvailable } from "@/lib/invoice.functions";
 import { fileToBase64, photoToJpeg } from "@/lib/image";
 import { errMsg, loadCostStructure, loadProducts, loadSettings } from "@/lib/data";
-import { fmtBRL, fmtDate, fmtNum, fmtPct, parseDecimal, round2 } from "@/lib/format";
+import { fmtBRL, fmtDate, fmtNum, fmtPct, isoDay, parseDecimal, round2 } from "@/lib/format";
 import {
   effectiveUnitCosts,
   MATCH_LABEL,
@@ -28,7 +28,7 @@ import { analyzePrice, type CostStructure } from "@/lib/pricing";
 import type { Product, ShopSettings } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { AlertTriangle, Camera, FileUp, Loader2, Plus, X } from "lucide-react";
+import { AlertTriangle, Camera, FileUp, Keyboard, Loader2, Plus, Trash2, X } from "lucide-react";
 
 export const Route = createFileRoute("/notas")({
   head: () => ({ meta: [{ title: "Notas fiscais — Squash Tennis Shop" }] }),
@@ -36,6 +36,7 @@ export const Route = createFileRoute("/notas")({
 });
 
 interface Row {
+  key: string;
   productId: string | null;
   matchKind: MatchKind | null;
   suggestions: Product[];
@@ -53,6 +54,8 @@ interface InvoiceListItem {
 
 function NotasPage() {
   const readInvoice = useServerFn(extractInvoicePdf);
+  const checkAi = useServerFn(invoiceAiAvailable);
+  const [aiAvailable, setAiAvailable] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<Array<{ base64: string; preview: string }>>([]);
@@ -62,7 +65,7 @@ function NotasPage() {
   const [settings, setSettings] = useState<ShopSettings | null>(null);
   const [cs, setCs] = useState<CostStructure | null>(null);
   const [history, setHistory] = useState<InvoiceListItem[]>([]);
-  const [draft, setDraft] = useState<(InvoiceDraft & { source: "pdf" | "xml" | "foto" }) | null>(null);
+  const [draft, setDraft] = useState<(InvoiceDraft & { source: Source }) | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -89,17 +92,55 @@ function NotasPage() {
   }, []);
   useEffect(() => {
     load();
+    checkAi()
+      .then((r) => setAiAvailable(r.available))
+      .catch(() => setAiAvailable(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
-  const startReview = (d: InvoiceDraft, source: "pdf" | "xml" | "foto", prods = products, lks = links) => {
+  const startReview = (d: InvoiceDraft, source: Source, prods = products, lks = links) => {
     if (!d.items.length) return toast.error("Nenhum item encontrado na nota");
     setDraft({ ...d, source });
     setRows(
       d.items.map((it) => {
         const m = matchItem(it, d.supplier_cnpj, prods, lks);
-        return { productId: m.product?.id ?? null, matchKind: m.kind, suggestions: m.suggestions };
+        return { key: crypto.randomUUID(), productId: m.product?.id ?? null, matchKind: m.kind, suggestions: m.suggestions };
       }),
     );
+  };
+
+  // Nota digitada à mão: começa vazia, você escolhe os produtos e informa quantidade e valor.
+  const startManual = () => {
+    setDraft({
+      access_key: null,
+      number: null,
+      series: null,
+      issue_date: isoDay(new Date()),
+      supplier_name: null,
+      supplier_cnpj: null,
+      total_products: null,
+      freight: 0,
+      discount: 0,
+      other_costs: 0,
+      ipi: 0,
+      icms_st: 0,
+      total: null,
+      items: [emptyItem()],
+      source: "manual",
+    });
+    setRows([emptyRow()]);
+  };
+
+  const addItem = () => {
+    if (!draft) return;
+    setDraft({ ...draft, items: [...draft.items, emptyItem()] });
+    setRows((rs) => [...rs, emptyRow()]);
+  };
+
+  const removeItem = (i: number) => {
+    if (!draft || draft.items.length <= 1) return;
+    setDraft({ ...draft, items: draft.items.filter((_, j) => j !== i) });
+    setRows((rs) => rs.filter((_, j) => j !== i));
   };
 
   const isImage = (f: File) => f.type.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name);
@@ -112,6 +153,7 @@ function NotasPage() {
 
     // fotos: vão se acumulando (uma nota pode ter várias páginas) até você mandar ler
     if (files.every(isImage)) {
+      if (!aiAvailable) return toast.error("A leitura de foto está desligada. Use o XML da nota ou digite a nota.");
       setPreparing(true);
       try {
         const converted = await Promise.all(files.map((f) => photoToJpeg(f)));
@@ -126,6 +168,8 @@ function NotasPage() {
     if (files.length > 1) return toast.error("Envie um PDF ou XML por vez (fotos podem ser várias)");
 
     const file = files[0];
+    const isXml = file.name.toLowerCase().endsWith(".xml") || file.type.includes("xml");
+    if (!isXml && !aiAvailable) return toast.error("A leitura de PDF está desligada. Use o XML da nota ou digite a nota.");
     setReading(true);
     try {
       if (file.name.toLowerCase().endsWith(".xml") || file.type.includes("xml")) {
@@ -197,6 +241,7 @@ function NotasPage() {
   const doImport = async () => {
     if (!draft) return;
     if (unmatched) return toast.error(`Ainda há ${unmatched} item(ns) sem produto`);
+    if (draft.items.some((it) => !(it.qty > 0))) return toast.error("Todo item precisa ter quantidade maior que zero");
     setSaving(true);
     const { error } = await supabase.rpc("shop_import_invoice", {
       p_header: {
@@ -217,13 +262,14 @@ function NotasPage() {
       },
       p_items: draft.items.map((it, i) => ({
         product_id: rows[i].productId,
-        nf_name: it.nf_name,
+        // nota digitada sem descrição: registra com o nome do produto e não cria vínculo
+        nf_name: it.nf_name.trim() || byId.get(rows[i].productId!)?.nf_name || byId.get(rows[i].productId!)?.name || "",
         supplier_code: it.supplier_code,
         ean: it.ean,
         nf_qty: it.qty,
         nf_unit_price: it.unit_price,
         unit_cost_nf: costs[i],
-        remember: true,
+        remember: !!it.nf_name.trim(),
       })),
     });
     setSaving(false);
@@ -256,14 +302,23 @@ function NotasPage() {
               <FileUp className="h-10 w-10 text-primary" />
               <div className="font-medium">Importar nota de compra</div>
               <p className="max-w-lg text-sm text-muted-foreground">
-                Envie o <b>XML</b> da NF-e (leitura exata), o <b>PDF</b> do DANFE ou <b>fotos</b> da nota tiradas no celular
-                (lidos por IA). Você revisa tudo antes de dar entrada no estoque.
+                {aiAvailable ? (
+                  <>
+                    Envie o <b>XML</b> da NF-e (leitura exata), o <b>PDF</b> do DANFE ou <b>fotos</b> da nota tiradas no celular
+                    (lidos por IA), ou digite a nota. Você revisa tudo antes de dar entrada no estoque.
+                  </>
+                ) : (
+                  <>
+                    Envie o <b>XML</b> da NF-e (leitura exata e gratuita) ou <b>digite a nota</b>. Não tem o XML? Peça ao seu
+                    contador: ele costuma ter o XML de todas as notas emitidas para o CNPJ da loja.
+                  </>
+                )}
               </p>
               <input
                 ref={fileRef}
                 type="file"
                 multiple
-                accept=".pdf,.xml,application/pdf,text/xml,application/xml,image/*"
+                accept={aiAvailable ? ".pdf,.xml,application/pdf,text/xml,application/xml,image/*" : ".xml,text/xml,application/xml"}
                 className="hidden"
                 onChange={(e) => onFiles(e.target.files)}
               />
@@ -274,11 +329,16 @@ function NotasPage() {
                 </div>
               ) : (
                 <div className="flex flex-wrap justify-center gap-2">
-                  <Button size="lg" disabled={preparing} onClick={() => cameraRef.current?.click()}>
-                    <Camera className="mr-2 h-4 w-4" /> {photos.length ? "Tirar mais uma foto" : "Tirar foto da nota"}
+                  {aiAvailable && (
+                    <Button size="lg" disabled={preparing} onClick={() => cameraRef.current?.click()}>
+                      <Camera className="mr-2 h-4 w-4" /> {photos.length ? "Tirar mais uma foto" : "Tirar foto da nota"}
+                    </Button>
+                  )}
+                  <Button size="lg" variant={aiAvailable ? "outline" : "default"} disabled={preparing} onClick={() => fileRef.current?.click()}>
+                    <FileUp className="mr-2 h-4 w-4" /> {aiAvailable ? "Escolher arquivo" : "Importar XML"}
                   </Button>
-                  <Button size="lg" variant="outline" disabled={preparing} onClick={() => fileRef.current?.click()}>
-                    Escolher arquivo
+                  <Button size="lg" variant="outline" disabled={preparing} onClick={startManual}>
+                    <Keyboard className="mr-2 h-4 w-4" /> Digitar nota
                   </Button>
                 </div>
               )}
@@ -305,11 +365,13 @@ function NotasPage() {
                   </Button>
                 </div>
               )}
+              {aiAvailable && (
               <ul className="max-w-lg list-disc space-y-0.5 pl-5 text-left text-xs text-muted-foreground">
                 <li>Nota apoiada numa mesa, foto de cima, com boa luz e sem sombra do celular.</li>
                 <li>A nota inteira no quadro. Se a lista de itens for longa, tire em partes com um pedaço repetido entre elas.</li>
                 <li>Nota de mais de uma página: uma foto por página, antes de tocar em "Ler nota".</li>
               </ul>
+              )}
             </CardContent>
           </Card>
 
@@ -357,7 +419,7 @@ function NotasPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
-                Revisar nota <Badge variant="outline">{draft.source === "xml" ? "XML" : draft.source === "foto" ? "Lida da foto por IA" : "Lida do PDF por IA"}</Badge>
+                Revisar nota <Badge variant="outline">{SOURCE_LABEL[draft.source]}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-4">
@@ -413,6 +475,7 @@ function NotasPage() {
                     <TableHead className="text-right">Custo real</TableHead>
                     <TableHead className="min-w-64">Produto no sistema</TableHead>
                     <TableHead className="min-w-48">Efeito</TableHead>
+                    <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -426,9 +489,14 @@ function NotasPage() {
                       p && p.stock_qty > 0 ? (p.stock_qty * p.cost_price + addQty * unitCost) / (p.stock_qty + addQty) : unitCost;
                     const pa = p && cs ? analyzePrice(p.sale_price, newCost, cs, target) : null;
                     return (
-                      <TableRow key={`${draft.access_key ?? draft.number}-${i}`} className={cn(!p && "bg-destructive/5")}>
+                      <TableRow key={r?.key ?? i} className={cn(!p && "bg-destructive/5")}>
                         <TableCell>
-                          <Input className="h-8 text-xs" value={it.nf_name} onChange={(e) => setItem(i, { nf_name: e.target.value })} />
+                          <Input
+                            className="h-8 text-xs"
+                            value={it.nf_name}
+                            placeholder={draft.source === "manual" ? "Descrição na nota (opcional)" : undefined}
+                            onChange={(e) => setItem(i, { nf_name: e.target.value })}
+                          />
                           <div className="mt-1 text-xs text-muted-foreground">
                             {it.supplier_code && `cód. ${it.supplier_code}`} {it.ean && `· EAN ${it.ean}`} {it.unit && `· ${it.unit}`}
                           </div>
@@ -491,11 +559,23 @@ function NotasPage() {
                             </>
                           )}
                         </TableCell>
+                        <TableCell>
+                          {draft.items.length > 1 && (
+                            <Button size="icon" variant="ghost" className="h-8 w-8" title="Remover item" onClick={() => removeItem(i)}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </TableCell>
                       </TableRow>
                     );
                   })}
                 </TableBody>
               </Table>
+              <div className="border-t p-2">
+                <Button size="sm" variant="ghost" onClick={addItem}>
+                  <Plus className="mr-1 h-4 w-4" /> Adicionar item
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -531,6 +611,33 @@ function NotasPage() {
     </AppLayout>
   );
 }
+
+type Source = "pdf" | "xml" | "foto" | "manual";
+
+const SOURCE_LABEL: Record<Source, string> = {
+  xml: "XML",
+  pdf: "Lida do PDF por IA",
+  foto: "Lida da foto por IA",
+  manual: "Digitada",
+};
+
+const emptyItem = (): InvoiceDraft["items"][number] => ({
+  nf_name: "",
+  supplier_code: null,
+  ean: null,
+  ncm: null,
+  unit: null,
+  qty: 1,
+  unit_price: 0,
+  total: 0,
+  discount: null,
+  freight: null,
+  other: null,
+  ipi: null,
+  icms_st: null,
+});
+
+const emptyRow = (): Row => ({ key: crypto.randomUUID(), productId: null, matchKind: null, suggestions: [] });
 
 const dec = (v: number | null | undefined) => (v === null || v === undefined ? "" : String(v).replace(".", ","));
 

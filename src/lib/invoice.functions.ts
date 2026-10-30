@@ -28,6 +28,11 @@ Regras:
 - Liste TODOS os itens, em todas as páginas, na ordem da nota. Não invente itens.
 - "reading_notes": se algum número ou descrição estiver borrado, cortado ou ilegível, dê seu melhor palpite no campo e explique aqui, em português curto, qual item/campo ficou duvidoso (ex.: "Item 3: quantidade pouco legível"). Se estiver tudo legível, deixe a lista vazia.`;
 
+/** Diz se a leitura por IA está ligada (se há ANTHROPIC_API_KEY no Cloudflare). */
+export const invoiceAiAvailable = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => ({ available: !!(await getServerSecret("ANTHROPIC_API_KEY")) }));
+
 /**
  * Lê o PDF ou as fotos de uma nota fiscal com o Claude e devolve os dados estruturados.
  * Nada é gravado aqui: a tela mostra o resultado para revisão antes de dar
