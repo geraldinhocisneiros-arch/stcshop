@@ -56,7 +56,7 @@ Secrets do Worker `stcshop` (painel do Cloudflare → Workers → stcshop → Se
 
 ### 3. GitHub Actions
 
-Secrets do repositório: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `CLOUDFLARE_API_TOKEN`.
+Secrets do repositório: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
 Cada push na `main` roda os testes, faz o build e publica.
 
 ### 4. Primeiro acesso
