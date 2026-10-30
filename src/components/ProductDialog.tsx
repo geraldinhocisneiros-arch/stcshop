@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CategoryPicker } from "@/components/CategoryPicker";
+import { ListPicker } from "@/components/ListPicker";
 import { supabase } from "@/integrations/supabase/client";
 import { fmtBRL, fmtPct, parseDecimal, round2 } from "@/lib/format";
 import { analyzePrice, PRICE_STATUS_LABEL, type CostStructure } from "@/lib/pricing";
@@ -181,11 +181,11 @@ export function ProductDialog({
           )}
           <div className="space-y-1">
             <Label>Categoria</Label>
-            <CategoryPicker value={f.category ?? ""} onChange={(category) => setF({ ...f, category })} />
+            <ListPicker kind="category" value={f.category ?? ""} onChange={(category) => setF({ ...f, category })} />
           </div>
           <div className="space-y-1">
             <Label>Marca</Label>
-            <Input value={f.brand ?? ""} onChange={set("brand")} />
+            <ListPicker kind="brand" value={f.brand ?? ""} onChange={(brand) => setF({ ...f, brand })} />
           </div>
           {kind === "produto" && (
             <>
@@ -194,8 +194,11 @@ export function ProductDialog({
                 <Input value={f.barcode ?? ""} onChange={set("barcode")} />
               </div>
               <div className="space-y-1">
-                <Label>Código do fornecedor / interno</Label>
-                <Input value={f.code ?? ""} onChange={set("code")} />
+                <Label>Código do produto no fornecedor</Label>
+                <Input value={f.code ?? ""} onChange={set("code")} placeholder="Ex.: WR8015401" />
+                <p className="text-xs text-muted-foreground">
+                  Código deste item, como vem na nota (não é o código da marca). Ajuda a reconhecer o produto na importação.
+                </p>
               </div>
               <div className="space-y-1">
                 <Label>Unidade de venda</Label>

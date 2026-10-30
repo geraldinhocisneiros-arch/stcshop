@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { CategoriesDialog } from "@/components/CategoriesDialog";
+import { ListManagerDialog } from "@/components/ListManagerDialog";
 import { ProductDialog } from "@/components/ProductDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import { analyzePrice, PRICE_STATUS_LABEL, type CostStructure } from "@/lib/pric
 import type { Product, ShopSettings } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Plus, Tags } from "lucide-react";
+import { Award, Plus, Tags } from "lucide-react";
 
 export const Route = createFileRoute("/produtos")({
   head: () => ({ meta: [{ title: "Produtos — Squash Tennis Shop" }] }),
@@ -33,7 +33,7 @@ function ProdutosPage() {
   const [status, setStatus] = useState("ativos");
   const [editing, setEditing] = useState<Product | null>(null);
   const [dialog, setDialog] = useState(false);
-  const [catDialog, setCatDialog] = useState(false);
+  const [listDialog, setListDialog] = useState<"category" | "brand" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -71,8 +71,11 @@ function ProdutosPage() {
       actions={
         isAdmin && (
           <>
-            <Button size="sm" variant="outline" onClick={() => setCatDialog(true)}>
+            <Button size="sm" variant="outline" onClick={() => setListDialog("category")}>
               <Tags className="mr-1 h-4 w-4" /> Categorias
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setListDialog("brand")}>
+              <Award className="mr-1 h-4 w-4" /> Marcas
             </Button>
             <Button
               size="sm"
@@ -206,7 +209,13 @@ function ProdutosPage() {
         targetMargin={target}
         onSaved={load}
       />
-      <CategoriesDialog open={catDialog} onOpenChange={setCatDialog} products={products} onChanged={load} />
+      <ListManagerDialog
+        kind={listDialog ?? "category"}
+        open={listDialog !== null}
+        onOpenChange={(v) => !v && setListDialog(null)}
+        products={products}
+        onChanged={load}
+      />
     </AppLayout>
   );
 }

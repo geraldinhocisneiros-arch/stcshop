@@ -147,6 +147,8 @@ export interface StringingOrder {
 export interface Category {
   id: string;
   name: string;
+  /** só marcas têm código */
+  code?: string | null;
 }
 
 export interface Supplier {

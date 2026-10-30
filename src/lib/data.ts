@@ -16,6 +16,12 @@ export async function loadCategories(): Promise<Category[]> {
   return (data ?? []) as Category[];
 }
 
+export async function loadBrands(): Promise<Category[]> {
+  const { data, error } = await supabase.from("shop_brands").select("id, name, code").order("name");
+  if (error) throw error;
+  return (data ?? []) as Category[];
+}
+
 export async function loadSuppliers(): Promise<Supplier[]> {
   const { data, error } = await supabase.from("shop_suppliers").select("*").order("name");
   if (error) throw error;
