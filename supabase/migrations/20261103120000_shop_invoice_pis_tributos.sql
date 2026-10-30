@@ -8,9 +8,9 @@
 -- despesas, menos desconto).
 
 alter table public.shop_invoices
-  add column pis numeric(12,2) not null default 0,
-  add column approx_taxes numeric(12,2) not null default 0,
-  add column st_included boolean not null default false;
+  add column if not exists pis numeric(12,2) not null default 0,
+  add column if not exists approx_taxes numeric(12,2) not null default 0,
+  add column if not exists st_included boolean not null default false;
 
 create or replace function public.shop_import_invoice(p_header jsonb, p_items jsonb)
 returns uuid language plpgsql security definer set search_path = public as $$
