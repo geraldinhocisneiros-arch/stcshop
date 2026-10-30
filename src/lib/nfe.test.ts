@@ -10,7 +10,7 @@ const XML = `<?xml version="1.0" encoding="UTF-8"?>
 <imposto><ICMS><ICMS10><vICMSST>12.00</vICMSST></ICMS10></ICMS><IPI><IPITrib><vIPI>0.00</vIPI></IPITrib></IPI></imposto></det>
 <det nItem="2"><prod><cProd>BB77</cProd><cEAN>SEM GTIN</cEAN><xProd>CORDA BABOLAT RPM BLAST 200M</xProd><NCM>95069900</NCM><uCom>RL</uCom><qCom>1.0000</qCom><vUnCom>760.0000000000</vUnCom><vProd>760.00</vProd><vDesc>10.00</vDesc></prod>
 <imposto><ICMS><ICMS00/></ICMS></imposto></det>
-<total><ICMSTot><vProd>1000.00</vProd><vFrete>50.00</vFrete><vDesc>10.00</vDesc><vOutro>0.00</vOutro><vIPI>0.00</vIPI><vST>12.00</vST><vNF>1052.00</vNF></ICMSTot></total>
+<total><ICMSTot><vProd>1000.00</vProd><vFrete>50.00</vFrete><vDesc>10.00</vDesc><vOutro>0.00</vOutro><vIPI>0.00</vIPI><vST>12.00</vST><vPIS>16.50</vPIS><vNF>1052.00</vNF><vTotTrib>210.40</vTotTrib></ICMSTot></total>
 </infNFe></NFe><protNFe><infProt><chNFe>35261012345678000199550010000012341000012345</chNFe></infProt></protNFe></nfeProc>`;
 
 describe("parseNfeXml", () => {
@@ -22,6 +22,8 @@ describe("parseNfeXml", () => {
     expect(d.supplier_name).toBe("DISTRIBUIDORA ESPORTES & CIA LTDA");
     expect(d.freight).toBe(50);
     expect(d.total).toBe(1052);
+    expect(d.pis).toBe(16.5);
+    expect(d.approx_taxes).toBe(210.4);
   });
   test("itens", () => {
     expect(d.items).toHaveLength(2);
@@ -52,7 +54,7 @@ describe("effectiveUnitCosts", () => {
   test("desconto só no rodapé é rateado", () => {
     const d: InvoiceDraft = {
       access_key: null, number: null, series: null, issue_date: null, supplier_name: null, supplier_cnpj: null,
-      total_products: 200, freight: 0, discount: 20, other_costs: 0, ipi: 0, icms_st: 0, total: 180,
+      total_products: 200, freight: 0, discount: 20, other_costs: 0, ipi: 0, icms_st: 0, pis: 0, approx_taxes: 0, total: 180,
       items: [
         { nf_name: "A", supplier_code: null, ean: null, ncm: null, unit: null, qty: 1, unit_price: 100, total: 100, discount: null, freight: null, other: null, ipi: null, icms_st: null },
         { nf_name: "B", supplier_code: null, ean: null, ncm: null, unit: null, qty: 2, unit_price: 50, total: 100, discount: null, freight: null, other: null, ipi: null, icms_st: null },

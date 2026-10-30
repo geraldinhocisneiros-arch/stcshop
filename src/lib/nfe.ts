@@ -34,6 +34,9 @@ export interface InvoiceDraft {
   other_costs: number;
   ipi: number;
   icms_st: number;
+  /** informativos: já embutidos no preço, não entram no custo */
+  pis: number;
+  approx_taxes: number;
   total: number | null;
   items: InvoiceItemDraft[];
   /** avisos da leitura por IA (campos ilegíveis na foto/PDF) */
@@ -157,6 +160,8 @@ export function parseNfeXml(xml: string): InvoiceDraft {
     other_costs: num(first(tot, "vOutro")),
     ipi: num(first(tot, "vIPI")),
     icms_st: num(first(tot, "vST")),
+    pis: num(first(tot, "vPIS")),
+    approx_taxes: num(first(tot, "vTotTrib")),
     total: numOrNull(first(tot, "vNF")),
     items,
   };

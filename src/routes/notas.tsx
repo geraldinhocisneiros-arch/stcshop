@@ -138,6 +138,8 @@ function NotasPage() {
       other_costs: 0,
       ipi: 0,
       icms_st: 0,
+      pis: 0,
+      approx_taxes: 0,
       total: null,
       items: [emptyItem()],
       source: "manual",
@@ -272,6 +274,8 @@ function NotasPage() {
       other_costs: draft.other_costs,
       ipi: draft.ipi,
       icms_st: draft.icms_st,
+      pis: draft.pis,
+      approx_taxes: draft.approx_taxes,
       total: draft.total,
       source: draft.source === "foto" ? "pdf" : draft.source, // fotos ficam registradas como leitura por IA
     };
@@ -334,6 +338,8 @@ function NotasPage() {
       other_costs: Number(h.other_costs ?? 0),
       ipi: Number(h.ipi ?? 0),
       icms_st: Number(h.icms_st ?? 0),
+      pis: Number(h.pis ?? 0),
+      approx_taxes: Number(h.approx_taxes ?? 0),
       total: h.total,
       source: h.source === "xml" ? "xml" : h.source === "manual" ? "manual" : "pdf",
       items: list.map((it) => ({
@@ -560,6 +566,11 @@ function NotasPage() {
               <Field label="ICMS ST" {...numHeader("icms_st")} />
               <Field label="Total produtos (nota)" {...numHeader("total_products")} />
               <Field label="Total da nota" {...numHeader("total")} />
+              <Field label="PIS" {...numHeader("pis")} />
+              <Field label="Valor aprox. dos tributos" {...numHeader("approx_taxes")} />
+              <p className="self-end text-xs text-muted-foreground md:col-span-2">
+                PIS e tributos aproximados são só informativos: já estão no preço do fornecedor e não entram no custo do produto.
+              </p>
             </CardContent>
           </Card>
 

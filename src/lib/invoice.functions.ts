@@ -22,7 +22,7 @@ Regras:
 - Se a descrição continuar na linha de baixo dentro do mesmo item, junte numa só.
 - "qty", "unit_price" e "total" são as colunas QUANT/QTD, V.UNIT/VL. UNIT e V.TOTAL/VL. TOTAL do item. Números em formato decimal com ponto (1.234,56 vira 1234.56).
 - "discount", "ipi" e "icms_st" do item: preencha só se a coluna existir para aquele item; caso contrário null.
-- Totais do rodapé ("CÁLCULO DO IMPOSTO"): valor total dos produtos, frete, desconto, outras despesas, IPI, ICMS ST (valor do ICMS substituição) e valor total da nota. Use 0 quando o campo existir e estiver zerado.
+- Totais do rodapé ("CÁLCULO DO IMPOSTO"): valor total dos produtos, frete, desconto, outras despesas, IPI, ICMS ST (valor do ICMS substituição), PIS, valor aproximado dos tributos (campo "V. TOT. TRIB." ou "Valor aprox. dos tributos", às vezes nas informações complementares) e valor total da nota. Use 0 quando o campo existir e estiver zerado.
 - "access_key": os 44 dígitos da chave de acesso, sem espaços.
 - "issue_date" no formato AAAA-MM-DD.
 - Liste TODOS os itens, em todas as páginas, na ordem da nota. Não invente itens.
@@ -96,6 +96,8 @@ export const extractInvoicePdf = createServerFn({ method: "POST" })
       other_costs: money,
       ipi: money,
       icms_st: money,
+      pis: money,
+      approx_taxes: money,
       total: money,
       items: z.array(Item),
       reading_notes: z.array(z.string()),
@@ -152,6 +154,8 @@ export const extractInvoicePdf = createServerFn({ method: "POST" })
       other_costs: out.other_costs ?? 0,
       ipi: out.ipi ?? 0,
       icms_st: out.icms_st ?? 0,
+      pis: out.pis ?? 0,
+      approx_taxes: out.approx_taxes ?? 0,
       total: out.total,
       warnings: out.reading_notes.filter((n) => n.trim()),
       items: out.items.map((i) => ({
