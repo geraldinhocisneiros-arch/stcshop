@@ -64,6 +64,8 @@ export function ProductDialog({
       cost_price: dec(p?.cost_price ?? prefill?.cost_price),
       min_stock: dec(p?.min_stock ?? 0),
       initial_stock: "",
+      stock_qty: dec(p?.stock_qty ?? 0),
+      stock_reason: "",
       notes: str(p?.notes),
     });
   }, [open, product, prefill]);
@@ -75,8 +77,12 @@ export function ProductDialog({
   const cost = parseDecimal(f.cost_price);
   const pa = cs ? analyzePrice(price, cost, cs, targetMargin ?? 0) : null;
 
+  const newStock = parseDecimal(f.stock_qty);
+  const stockChanged = !!product && kind === "produto" && Math.abs(newStock - Number(product.stock_qty)) > 0.0005;
+
   const save = async () => {
     if (!f.name?.trim()) return toast.error("Informe o apelido do produto");
+    if (stockChanged && !f.stock_reason?.trim()) return toast.error("Informe o motivo da alteração do estoque");
     const factor = parseDecimal(f.nf_unit_factor) || 1;
     const row = {
       kind,
@@ -118,6 +124,18 @@ export function ProductDialog({
       });
       if (error) toast.error(`Produto salvo, mas o estoque inicial falhou: ${error.message}`);
       else saved = { ...saved, stock_qty: initial };
+    }
+    if (stockChanged) {
+      // passa pela mesma função do ajuste de estoque, para ficar no histórico
+      const { error } = await supabase.rpc("shop_adjust_stock", {
+        p_product_id: saved.id,
+        p_kind: "ajuste",
+        p_qty: newStock,
+        p_unit_cost: null,
+        p_notes: f.stock_reason.trim(),
+      });
+      if (error) toast.error(`Produto salvo, mas o estoque não foi alterado: ${error.message}`);
+      else saved = { ...saved, stock_qty: newStock };
     }
     setBusy(false);
     toast.success(product ? "Produto atualizado" : "Produto cadastrado");
@@ -229,6 +247,21 @@ export function ProductDialog({
                 <div className="space-y-1">
                   <Label>Estoque inicial</Label>
                   <Input value={f.initial_stock ?? ""} onChange={set("initial_stock")} placeholder="0" />
+                </div>
+              )}
+              {product && (
+                <div className="space-y-1">
+                  <Label>Estoque atual</Label>
+                  <Input value={f.stock_qty ?? ""} onChange={set("stock_qty")} inputMode="decimal" />
+                </div>
+              )}
+              {stockChanged && (
+                <div className="space-y-1 md:col-span-2">
+                  <Label>
+                    Motivo da alteração do estoque ({dec(product!.stock_qty)} → {dec(newStock)}) *
+                  </Label>
+                  <Input value={f.stock_reason ?? ""} onChange={set("stock_reason")} placeholder="Ex.: contagem, avaria, uso interno" />
+                  <p className="text-xs text-muted-foreground">A mudança fica registrada no histórico de movimentações do estoque.</p>
                 </div>
               )}
             </>

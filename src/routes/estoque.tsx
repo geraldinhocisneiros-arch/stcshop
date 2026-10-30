@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -17,6 +16,7 @@ import { fmtBRL, fmtDateTime, fmtNum, matchesSearch, parseDecimal } from "@/lib/
 import type { Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { ClipboardCheck, Minus, Plus } from "lucide-react";
 
 export const Route = createFileRoute("/estoque")({
   head: () => ({ meta: [{ title: "Estoque — Squash Tennis Shop" }] }),
@@ -42,7 +42,7 @@ const KIND_LABEL: Record<string, string> = {
   venda: "Venda",
   cancelamento_venda: "Venda cancelada",
   ajuste: "Ajuste (inventário)",
-  perda: "Perda / avaria",
+  perda: "Saída manual",
 };
 
 function EstoquePage() {
@@ -51,7 +51,7 @@ function EstoquePage() {
   const [moves, setMoves] = useState<Movement[]>([]);
   const [search, setSearch] = useState("");
   const [onlyLow, setOnlyLow] = useState(false);
-  const [adjusting, setAdjusting] = useState<Product | null>(null);
+  const [adjusting, setAdjusting] = useState<{ product: Product; kind: AdjustKind } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -134,9 +134,17 @@ function EstoquePage() {
                       {isAdmin && <TableCell className="text-right tabular-nums">{fmtBRL(Math.max(0, p.stock_qty) * p.cost_price)}</TableCell>}
                       {isAdmin && (
                         <TableCell className="text-right">
-                          <Button size="sm" variant="outline" onClick={() => setAdjusting(p)}>
-                            Ajustar
-                          </Button>
+                          <div className="flex justify-end gap-1">
+                            <Button size="sm" variant="outline" title="Entrada manual" onClick={() => setAdjusting({ product: p, kind: "entrada_manual" })}>
+                              <Plus className="h-4 w-4" /> Entrada
+                            </Button>
+                            <Button size="sm" variant="outline" title="Saída manual" onClick={() => setAdjusting({ product: p, kind: "perda" })}>
+                              <Minus className="h-4 w-4" /> Saída
+                            </Button>
+                            <Button size="sm" variant="outline" title="Informar a quantidade contada" onClick={() => setAdjusting({ product: p, kind: "ajuste" })}>
+                              <ClipboardCheck className="h-4 w-4" /> Contagem
+                            </Button>
+                          </div>
                         </TableCell>
                       )}
                     </TableRow>
@@ -183,74 +191,116 @@ function EstoquePage() {
         </TabsContent>
       </Tabs>
 
-      <AdjustDialog product={adjusting} onClose={() => setAdjusting(null)} onDone={load} />
+      <AdjustDialog target={adjusting} onClose={() => setAdjusting(null)} onDone={load} />
     </AppLayout>
   );
 }
 
-function AdjustDialog({ product, onClose, onDone }: { product: Product | null; onClose: () => void; onDone: () => void }) {
-  const [kind, setKind] = useState("ajuste");
+type AdjustKind = "entrada_manual" | "perda" | "ajuste";
+
+const ADJUST: Record<AdjustKind, { title: string; qtyLabel: string; reasons: string[] }> = {
+  entrada_manual: {
+    title: "Entrada manual",
+    qtyLabel: "Quantidade que entrou",
+    reasons: ["Compra sem nota", "Devolução de cliente", "Troca com fornecedor", "Achado no inventário"],
+  },
+  perda: {
+    title: "Saída manual",
+    qtyLabel: "Quantidade que saiu",
+    reasons: ["Avaria / defeito", "Uso interno (academia)", "Brinde / patrocínio", "Devolução ao fornecedor", "Furto / extravio"],
+  },
+  ajuste: {
+    title: "Contagem (inventário)",
+    qtyLabel: "Quantidade contada na prateleira",
+    reasons: ["Inventário", "Correção de lançamento"],
+  },
+};
+
+function AdjustDialog({
+  target,
+  onClose,
+  onDone,
+}: {
+  target: { product: Product; kind: AdjustKind } | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const [qty, setQty] = useState("");
   const [cost, setCost] = useState("");
   const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
-    setKind("ajuste");
     setQty("");
     setCost("");
     setNotes("");
-  }, [product]);
-  if (!product) return null;
+  }, [target]);
+  if (!target) return null;
+  const { product, kind } = target;
+  const cfg = ADJUST[kind];
+  const n = parseDecimal(qty);
+  const after = qty.trim() === "" ? null : kind === "ajuste" ? n : kind === "perda" ? product.stock_qty - Math.abs(n) : product.stock_qty + Math.abs(n);
+
+  const save = async () => {
+    if (qty.trim() === "") return toast.error("Informe a quantidade");
+    if (kind !== "ajuste" && n <= 0) return toast.error("A quantidade precisa ser maior que zero");
+    if (!notes.trim()) return toast.error("Informe o motivo — ele fica no histórico para prestar contas");
+    setBusy(true);
+    const { error } = await supabase.rpc("shop_adjust_stock", {
+      p_product_id: product.id,
+      p_kind: kind,
+      p_qty: n,
+      p_unit_cost: kind === "entrada_manual" && cost ? parseDecimal(cost) : null,
+      p_notes: notes.trim(),
+    });
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success(`${product.name}: estoque agora ${fmtNum(after, 2)}`);
+    onClose();
+    onDone();
+  };
+
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Ajustar estoque — {product.name}</DialogTitle>
+          <DialogTitle>
+            {cfg.title} — {product.name}
+          </DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">Saldo atual: {fmtNum(product.stock_qty, 2)}</p>
         <div className="space-y-3">
-          <Select value={kind} onValueChange={setKind}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ajuste">Inventário — informar quantidade contada</SelectItem>
-              <SelectItem value="perda">Perda / avaria / uso interno — baixar</SelectItem>
-              <SelectItem value="entrada_manual">Entrada sem nota — somar</SelectItem>
-            </SelectContent>
-          </Select>
           <div className="space-y-1">
-            <Label>{kind === "ajuste" ? "Quantidade contada" : "Quantidade"}</Label>
-            <Input autoFocus value={qty} onChange={(e) => setQty(e.target.value)} />
+            <Label>{cfg.qtyLabel}</Label>
+            <Input autoFocus inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+          </div>
+          <div className="flex justify-between rounded-md bg-muted p-3 text-sm">
+            <span>
+              Hoje: <b>{fmtNum(product.stock_qty, 2)}</b>
+            </span>
+            <span>
+              Fica: <b className={cn(after !== null && after < 0 && "text-destructive")}>{after === null ? "—" : fmtNum(after, 2)}</b>
+            </span>
           </div>
           {kind === "entrada_manual" && (
             <div className="space-y-1">
-              <Label>Custo unitário (R$) — entra no custo médio</Label>
-              <Input value={cost} onChange={(e) => setCost(e.target.value)} />
+              <Label>Custo unitário (R$) — opcional, entra no custo médio</Label>
+              <Input inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="Deixe vazio se não teve custo (ex.: devolução)" />
             </div>
           )}
           <div className="space-y-1">
-            <Label>Motivo</Label>
-            <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Label>Motivo *</Label>
+            <div className="flex flex-wrap gap-1">
+              {cfg.reasons.map((r) => (
+                <Button key={r} type="button" size="sm" variant={notes === r ? "default" : "outline"} className="h-7 text-xs" onClick={() => setNotes(r)}>
+                  {r}
+                </Button>
+              ))}
+            </div>
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ou escreva o motivo" />
           </div>
         </div>
         <DialogFooter>
-          <Button
-            onClick={async () => {
-              if (qty.trim() === "") return toast.error("Informe a quantidade");
-              const { error } = await supabase.rpc("shop_adjust_stock", {
-                p_product_id: product.id,
-                p_kind: kind,
-                p_qty: parseDecimal(qty),
-                p_unit_cost: kind === "entrada_manual" && cost ? parseDecimal(cost) : null,
-                p_notes: notes || null,
-              });
-              if (error) return toast.error(error.message);
-              toast.success("Estoque ajustado");
-              onClose();
-              onDone();
-            }}
-          >
-            Salvar
+          <Button onClick={save} disabled={busy}>
+            {busy ? "Salvando…" : "Salvar"}
           </Button>
         </DialogFooter>
       </DialogContent>
