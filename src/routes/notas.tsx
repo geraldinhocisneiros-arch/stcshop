@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { ProductDialog, type ProductPrefill } from "@/components/ProductDialog";
 import { ProductPicker } from "@/components/ProductPicker";
+import { SupplierPicker } from "@/components/SupplierPicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,11 +14,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { extractInvoicePdf, invoiceAiAvailable } from "@/lib/invoice.functions";
 import { fileToBase64, photoToJpeg } from "@/lib/image";
-import { errMsg, loadCostStructure, loadProducts, loadSettings } from "@/lib/data";
+import { errMsg, loadCostStructure, loadProducts, loadSettings, loadSuppliers } from "@/lib/data";
 import { fmtBRL, fmtDate, fmtNum, fmtPct, isoDay, parseDecimal, round2 } from "@/lib/format";
 import {
   effectiveUnitCosts,
   MATCH_LABEL,
+  onlyDigits,
   matchItem,
   parseNfeXml,
   type InvoiceDraft,
@@ -25,10 +27,10 @@ import {
   type NfLink,
 } from "@/lib/nfe";
 import { analyzePrice, type CostStructure } from "@/lib/pricing";
-import type { Product, ShopSettings } from "@/lib/types";
+import { supplierLabel, type Product, type ShopSettings, type Supplier } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { AlertTriangle, Camera, FileUp, Keyboard, Loader2, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, Camera, FileUp, Keyboard, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 
 export const Route = createFileRoute("/notas")({
   head: () => ({ meta: [{ title: "Notas fiscais — Squash Tennis Shop" }] }),
@@ -37,6 +39,8 @@ export const Route = createFileRoute("/notas")({
 
 interface Row {
   key: string;
+  /** item que veio de uma nota já lançada (edição) */
+  saved?: boolean;
   productId: string | null;
   matchKind: MatchKind | null;
   suggestions: Product[];
@@ -44,6 +48,7 @@ interface Row {
 
 interface InvoiceListItem {
   id: string;
+  supplier_id: string | null;
   number: string | null;
   supplier_name: string | null;
   issue_date: string | null;
@@ -65,7 +70,11 @@ function NotasPage() {
   const [settings, setSettings] = useState<ShopSettings | null>(null);
   const [cs, setCs] = useState<CostStructure | null>(null);
   const [history, setHistory] = useState<InvoiceListItem[]>([]);
-  const [draft, setDraft] = useState<(InvoiceDraft & { source: Source }) | null>(null);
+  const [draft, setDraft] = useState<(InvoiceDraft & { source: Source; supplier_id?: string | null }) | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // na edição: quanto a nota original pôs no estoque, por produto (para a prévia partir do saldo sem ela)
+  const [original, setOriginal] = useState<Record<string, { qty: number; value: number }>>({});
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,12 +82,14 @@ function NotasPage() {
 
   const load = useCallback(async () => {
     try {
-      const [p, l, s, h] = await Promise.all([
+      const [p, l, s, h, sup] = await Promise.all([
         loadProducts(),
         supabase.from("shop_product_nf_links").select("product_id, nf_name_norm, supplier_cnpj, supplier_code"),
         loadSettings(),
-        supabase.from("shop_invoices").select("id, number, supplier_name, issue_date, total, source, created_at").order("created_at", { ascending: false }).limit(50),
+        supabase.from("shop_invoices").select("id, supplier_id, number, supplier_name, issue_date, total, source, created_at").order("created_at", { ascending: false }).limit(100),
+        loadSuppliers(),
       ]);
+      setSuppliers(sup);
       setProducts(p);
       setLinks((l.data ?? []) as NfLink[]);
       setSettings(s);
@@ -100,7 +111,10 @@ function NotasPage() {
 
   const startReview = (d: InvoiceDraft, source: Source, prods = products, lks = links) => {
     if (!d.items.length) return toast.error("Nenhum item encontrado na nota");
-    setDraft({ ...d, source });
+    const cnpj = onlyDigits(d.supplier_cnpj);
+    const sup = cnpj ? suppliers.find((x) => x.cnpj === cnpj) : undefined;
+    setEditingId(null);
+    setDraft({ ...d, source, supplier_id: sup?.id ?? null });
     setRows(
       d.items.map((it) => {
         const m = matchItem(it, d.supplier_cnpj, prods, lks);
@@ -127,7 +141,9 @@ function NotasPage() {
       total: null,
       items: [emptyItem()],
       source: "manual",
+      supplier_id: null,
     });
+    setEditingId(null);
     setRows([emptyRow()]);
   };
 
@@ -238,45 +254,125 @@ function NotasPage() {
 
   const unmatched = rows.filter((r) => !r.productId).length;
 
-  const doImport = async () => {
+  const doSave = async () => {
     if (!draft) return;
     if (unmatched) return toast.error(`Ainda há ${unmatched} item(ns) sem produto`);
     if (draft.items.some((it) => !(it.qty > 0))) return toast.error("Todo item precisa ter quantidade maior que zero");
+    const header = {
+      access_key: draft.access_key,
+      number: draft.number,
+      series: draft.series,
+      supplier_id: draft.supplier_id ?? null,
+      supplier_name: draft.supplier_name,
+      supplier_cnpj: draft.supplier_cnpj,
+      issue_date: draft.issue_date,
+      total_products: draft.total_products,
+      freight: draft.freight,
+      discount: draft.discount,
+      other_costs: draft.other_costs,
+      ipi: draft.ipi,
+      icms_st: draft.icms_st,
+      total: draft.total,
+      source: draft.source === "foto" ? "pdf" : draft.source, // fotos ficam registradas como leitura por IA
+    };
+    const items = draft.items.map((it, i) => ({
+      product_id: rows[i].productId,
+      // nota digitada sem descrição: registra com o nome do produto e não cria vínculo
+      nf_name: it.nf_name.trim() || byId.get(rows[i].productId!)?.nf_name || byId.get(rows[i].productId!)?.name || "",
+      supplier_code: it.supplier_code,
+      ean: it.ean,
+      unit: it.unit,
+      ncm: it.ncm,
+      nf_qty: it.qty,
+      nf_unit_price: it.unit_price,
+      discount: it.discount,
+      freight: it.freight,
+      other: it.other,
+      ipi: it.ipi,
+      icms_st: it.icms_st,
+      unit_cost_nf: costs[i],
+      remember: !!it.nf_name.trim(),
+    }));
     setSaving(true);
-    const { error } = await supabase.rpc("shop_import_invoice", {
-      p_header: {
-        access_key: draft.access_key,
-        number: draft.number,
-        series: draft.series,
-        supplier_name: draft.supplier_name,
-        supplier_cnpj: draft.supplier_cnpj,
-        issue_date: draft.issue_date,
-        total_products: draft.total_products,
-        freight: draft.freight,
-        discount: draft.discount,
-        other_costs: draft.other_costs,
-        ipi: draft.ipi,
-        icms_st: draft.icms_st,
-        total: draft.total,
-        source: draft.source === "foto" ? "pdf" : draft.source, // fotos ficam registradas como leitura por IA
-      },
-      p_items: draft.items.map((it, i) => ({
-        product_id: rows[i].productId,
-        // nota digitada sem descrição: registra com o nome do produto e não cria vínculo
-        nf_name: it.nf_name.trim() || byId.get(rows[i].productId!)?.nf_name || byId.get(rows[i].productId!)?.name || "",
-        supplier_code: it.supplier_code,
-        ean: it.ean,
-        nf_qty: it.qty,
-        nf_unit_price: it.unit_price,
-        unit_cost_nf: costs[i],
-        remember: !!it.nf_name.trim(),
-      })),
-    });
+    const { error } = editingId
+      ? await supabase.rpc("shop_update_invoice", { p_invoice_id: editingId, p_header: header, p_items: items })
+      : await supabase.rpc("shop_import_invoice", { p_header: header, p_items: items });
     setSaving(false);
     if (error) return toast.error(error.message);
-    toast.success("Nota importada — estoque e custos atualizados");
+    toast.success(editingId ? "Nota corrigida — estoque e custos recalculados" : "Nota importada — estoque e custos atualizados");
+    closeDraft();
+    load();
+  };
+
+  const closeDraft = () => {
     setDraft(null);
     setRows([]);
+    setEditingId(null);
+    setOriginal({});
+  };
+
+  // Abre uma nota já lançada para corrigir
+  const openInvoice = async (id: string) => {
+    const [inv, its] = await Promise.all([
+      supabase.from("shop_invoices").select("*").eq("id", id).single(),
+      supabase.from("shop_invoice_items").select("*").eq("invoice_id", id),
+    ]);
+    if (inv.error) return toast.error(inv.error.message);
+    const h = inv.data as any;
+    const list = (its.data ?? []) as any[];
+    setDraft({
+      access_key: h.access_key,
+      number: h.number,
+      series: h.series,
+      issue_date: h.issue_date,
+      supplier_name: h.supplier_name,
+      supplier_cnpj: h.supplier_cnpj,
+      supplier_id: h.supplier_id,
+      total_products: h.total_products,
+      freight: Number(h.freight ?? 0),
+      discount: Number(h.discount ?? 0),
+      other_costs: Number(h.other_costs ?? 0),
+      ipi: Number(h.ipi ?? 0),
+      icms_st: Number(h.icms_st ?? 0),
+      total: h.total,
+      source: h.source === "xml" ? "xml" : h.source === "manual" ? "manual" : "pdf",
+      items: list.map((it) => ({
+        nf_name: it.nf_name ?? "",
+        supplier_code: it.supplier_code,
+        ean: it.ean,
+        ncm: it.ncm,
+        unit: it.unit,
+        qty: Number(it.nf_qty),
+        unit_price: Number(it.nf_unit_price),
+        total: round2(Number(it.nf_qty) * Number(it.nf_unit_price)),
+        discount: it.item_discount,
+        freight: it.item_freight,
+        other: it.item_other,
+        ipi: it.item_ipi,
+        icms_st: it.item_icms_st,
+      })),
+    });
+    setRows(list.map((it) => ({ key: crypto.randomUUID(), saved: true, productId: it.product_id, matchKind: null, suggestions: [] })));
+    const orig: Record<string, { qty: number; value: number }> = {};
+    for (const it of list) {
+      const o = (orig[it.product_id] ??= { qty: 0, value: 0 });
+      o.qty += Number(it.stock_qty);
+      o.value += Number(it.stock_qty) * Number(it.unit_cost);
+    }
+    setOriginal(orig);
+    setEditingId(id);
+    window.scrollTo({ top: 0 });
+  };
+
+  const deleteInvoice = async () => {
+    if (!editingId) return;
+    if (!window.confirm("Excluir esta nota? A entrada no estoque será desfeita e o custo médio recalculado.")) return;
+    setSaving(true);
+    const { error } = await supabase.rpc("shop_delete_invoice", { p_invoice_id: editingId });
+    setSaving(false);
+    if (error) return toast.error(error.message);
+    toast.success("Nota excluída — entrada desfeita no estoque");
+    closeDraft();
     load();
   };
 
@@ -388,23 +484,32 @@ function NotasPage() {
                     <TableHead>Fornecedor</TableHead>
                     <TableHead>Origem</TableHead>
                     <TableHead className="text-right">Total</TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {history.map((h) => (
-                    <TableRow key={h.id}>
+                    <TableRow key={h.id} className="cursor-pointer" onClick={() => openInvoice(h.id)}>
                       <TableCell>{fmtDate(h.issue_date ?? h.created_at)}</TableCell>
                       <TableCell>{h.number ?? "—"}</TableCell>
-                      <TableCell>{h.supplier_name ?? "—"}</TableCell>
+                      <TableCell>
+                        {(() => {
+                          const sup = suppliers.find((x) => x.id === h.supplier_id);
+                          return sup ? supplierLabel(sup) : (h.supplier_name ?? "—");
+                        })()}
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline">{h.source.toUpperCase()}</Badge>
                       </TableCell>
                       <TableCell className="text-right">{fmtBRL(h.total)}</TableCell>
+                      <TableCell className="text-right">
+                        <Pencil className="ml-auto h-4 w-4 text-muted-foreground" />
+                      </TableCell>
                     </TableRow>
                   ))}
                   {history.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                      <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
                         Nenhuma nota importada ainda.
                       </TableCell>
                     </TableRow>
@@ -419,11 +524,30 @@ function NotasPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
-                Revisar nota <Badge variant="outline">{SOURCE_LABEL[draft.source]}</Badge>
+                {editingId ? "Corrigir nota já lançada" : "Revisar nota"} <Badge variant="outline">{SOURCE_LABEL[draft.source]}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-4">
-              <Field label="Fornecedor" value={draft.supplier_name ?? ""} onChange={setHeader("supplier_name")} className="md:col-span-2" />
+              <div className="space-y-1 md:col-span-2">
+                <Label className="text-xs">Fornecedor</Label>
+                <SupplierPicker
+                  suppliers={suppliers}
+                  value={draft.supplier_id ?? null}
+                  fallbackName={draft.supplier_id ? null : draft.supplier_name}
+                  onCreated={(sup) => setSuppliers((ss) => [...ss, sup])}
+                  onChange={(sup) =>
+                    setDraft({
+                      ...draft,
+                      supplier_id: sup?.id ?? null,
+                      supplier_name: sup?.name ?? draft.supplier_name,
+                      supplier_cnpj: sup?.cnpj ?? draft.supplier_cnpj,
+                    })
+                  }
+                />
+                {!draft.supplier_id && draft.supplier_cnpj && (
+                  <p className="text-xs text-muted-foreground">Não cadastrado — será cadastrado ao salvar a nota.</p>
+                )}
+              </div>
               <Field label="CNPJ" value={draft.supplier_cnpj ?? ""} onChange={setHeader("supplier_cnpj")} />
               <Field label="Número" value={draft.number ?? ""} onChange={setHeader("number")} />
               <Field label="Série" value={draft.series ?? ""} onChange={setHeader("series")} />
@@ -470,9 +594,11 @@ function NotasPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="min-w-64">Item da nota</TableHead>
-                    <TableHead className="w-24 text-right">Qtd</TableHead>
-                    <TableHead className="w-28 text-right">Unitário</TableHead>
-                    <TableHead className="text-right">Custo real</TableHead>
+                    <TableHead className="w-28 text-right">Qtd na nota</TableHead>
+                    <TableHead className="w-28 text-right">Valor unit. na nota</TableHead>
+                    <TableHead className="text-right" title="Valor unitário + frete, IPI, ICMS-ST e outras despesas − desconto, rateados">
+                      Custo real
+                    </TableHead>
                     <TableHead className="min-w-64">Produto no sistema</TableHead>
                     <TableHead className="min-w-48">Efeito</TableHead>
                     <TableHead className="w-10" />
@@ -485,8 +611,12 @@ function NotasPage() {
                     const factor = p?.nf_unit_factor ?? 1;
                     const addQty = it.qty * factor;
                     const unitCost = costs[i] / factor;
-                    const newCost =
-                      p && p.stock_qty > 0 ? (p.stock_qty * p.cost_price + addQty * unitCost) / (p.stock_qty + addQty) : unitCost;
+                    // saldo e custo "antes desta nota" (na edição, tira o que a versão original lançou)
+                    const o = editingId && p ? original[p.id] : undefined;
+                    const baseQty = p ? Number(p.stock_qty) - (o?.qty ?? 0) : 0;
+                    const baseCost =
+                      p && o ? (baseQty > 0 ? Math.max(0, (p.stock_qty * p.cost_price - o.value) / baseQty) : p.cost_price) : (p?.cost_price ?? 0);
+                    const newCost = p && baseQty > 0 ? (baseQty * baseCost + addQty * unitCost) / (baseQty + addQty) : unitCost;
                     const pa = p && cs ? analyzePrice(p.sale_price, newCost, cs, target) : null;
                     return (
                       <TableRow key={r?.key ?? i} className={cn(!p && "bg-destructive/5")}>
@@ -503,6 +633,11 @@ function NotasPage() {
                         </TableCell>
                         <TableCell>
                           <Input className="h-8 text-right" defaultValue={dec(it.qty)} onBlur={(e) => setItem(i, { qty: parseDecimal(e.target.value) })} />
+                          {p && factor !== 1 && (
+                            <div className="mt-1 text-right text-xs text-muted-foreground">
+                              × {fmtNum(factor, 3)} = {fmtNum(addQty, 2)} {p.unit}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Input
@@ -511,7 +646,14 @@ function NotasPage() {
                             onBlur={(e) => setItem(i, { unit_price: parseDecimal(e.target.value) })}
                           />
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">{fmtBRL(costs[i])}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {fmtBRL(costs[i])}
+                          {p && factor !== 1 && (
+                            <div className="text-xs text-muted-foreground">
+                              {fmtBRL(unitCost)} por {p.unit}
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             <ProductPicker
@@ -519,7 +661,7 @@ function NotasPage() {
                               value={r?.productId ?? null}
                               suggestions={r?.suggestions}
                               onChange={(id) =>
-                                setRows(rows.map((x, j) => (j === i ? { ...x, productId: id, matchKind: null } : x)))
+                                setRows(rows.map((x, j) => (j === i ? { ...x, productId: id, matchKind: null, saved: false } : x)))
                               }
                             />
                             <Button size="icon" variant="outline" className="h-8 w-8 shrink-0" title="Criar produto" onClick={() => setCreatingFor(i)}>
@@ -529,6 +671,8 @@ function NotasPage() {
                           <div className="mt-1 text-xs">
                             {r?.matchKind ? (
                               <span className="text-success">✓ {MATCH_LABEL[r.matchKind]}</span>
+                            ) : p && r?.saved ? (
+                              <span className="text-muted-foreground">Lançado nesta nota</span>
                             ) : p ? (
                               <span className="text-muted-foreground">Escolhido manualmente — será memorizado</span>
                             ) : (
@@ -540,10 +684,11 @@ function NotasPage() {
                           {p && (
                             <>
                               <div>
-                                +{fmtNum(addQty, 2)} {p.unit} → {fmtNum(p.stock_qty + addQty, 2)}
+                                {o ? "Sem a nota: " : ""}
+                                {fmtNum(baseQty, 2)} + {fmtNum(addQty, 2)} {p.unit} → <b>{fmtNum(baseQty + addQty, 2)}</b>
                               </div>
                               <div>
-                                Custo {fmtBRL(p.cost_price)} → <b>{fmtBRL(newCost)}</b>
+                                Custo {fmtBRL(baseCost)} → <b>{fmtBRL(newCost)}</b>
                               </div>
                               {pa && pa.status !== "sem_custo" && (
                                 <div
@@ -584,11 +729,16 @@ function NotasPage() {
               {draft.items.length} itens · custo total {fmtBRL(check?.totalCost)}
               {unmatched > 0 && <span className="text-destructive"> · {unmatched} sem produto</span>}
             </span>
-            <Button variant="outline" onClick={() => setDraft(null)}>
-              Descartar
+            {editingId && (
+              <Button variant="ghost" className="text-destructive" onClick={deleteInvoice} disabled={saving}>
+                <Trash2 className="mr-1 h-4 w-4" /> Excluir nota
+              </Button>
+            )}
+            <Button variant="outline" onClick={closeDraft}>
+              {editingId ? "Cancelar" : "Descartar"}
             </Button>
-            <Button onClick={doImport} disabled={saving || unmatched > 0}>
-              {saving ? "Importando…" : "Dar entrada no estoque"}
+            <Button onClick={doSave} disabled={saving || unmatched > 0}>
+              {saving ? "Salvando…" : editingId ? "Salvar correção" : "Dar entrada no estoque"}
             </Button>
           </div>
         </div>

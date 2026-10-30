@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   Wrench,
+  Truck,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
@@ -41,6 +42,7 @@ const NAV: NavItem[] = [
   { to: "/produtos", label: "Produtos", icon: Package },
   { to: "/estoque", label: "Estoque", icon: Boxes },
   { to: "/notas", label: "Notas fiscais", icon: FileInput, adminOnly: true },
+  { to: "/fornecedores", label: "Fornecedores", icon: Truck, adminOnly: true },
   { to: "/fechamentos", label: "Fechamentos", icon: Wallet },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3, adminOnly: true },
   { to: "/inteligencia", label: "Inteligência", icon: Lightbulb, adminOnly: true },

@@ -15,6 +15,7 @@ import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
 import { Route as CustosRouteImport } from './routes/custos'
 import { Route as EncordoamentoRouteImport } from './routes/encordoamento'
 import { Route as EstoqueRouteImport } from './routes/estoque'
+import { Route as FornecedoresRouteImport } from './routes/fornecedores'
 import { Route as InteligenciaRouteImport } from './routes/inteligencia'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as NotasRouteImport } from './routes/notas'
@@ -52,6 +53,11 @@ const EncordoamentoRoute = EncordoamentoRouteImport.update({
 const EstoqueRoute = EstoqueRouteImport.update({
   id: '/estoque',
   path: '/estoque',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FornecedoresRoute = FornecedoresRouteImport.update({
+  id: '/fornecedores',
+  path: '/fornecedores',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InteligenciaRoute = InteligenciaRouteImport.update({
@@ -102,6 +108,7 @@ export interface FileRoutesByFullPath {
   '/custos': typeof CustosRoute
   '/encordoamento': typeof EncordoamentoRoute
   '/estoque': typeof EstoqueRoute
+  '/fornecedores': typeof FornecedoresRoute
   '/inteligencia': typeof InteligenciaRoute
   '/login': typeof LoginRoute
   '/notas': typeof NotasRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/custos': typeof CustosRoute
   '/encordoamento': typeof EncordoamentoRoute
   '/estoque': typeof EstoqueRoute
+  '/fornecedores': typeof FornecedoresRoute
   '/inteligencia': typeof InteligenciaRoute
   '/login': typeof LoginRoute
   '/notas': typeof NotasRoute
@@ -135,6 +143,7 @@ export interface FileRoutesById {
   '/custos': typeof CustosRoute
   '/encordoamento': typeof EncordoamentoRoute
   '/estoque': typeof EstoqueRoute
+  '/fornecedores': typeof FornecedoresRoute
   '/inteligencia': typeof InteligenciaRoute
   '/login': typeof LoginRoute
   '/notas': typeof NotasRoute
@@ -153,6 +162,7 @@ export interface FileRouteTypes {
     | '/custos'
     | '/encordoamento'
     | '/estoque'
+    | '/fornecedores'
     | '/inteligencia'
     | '/login'
     | '/notas'
@@ -169,6 +179,7 @@ export interface FileRouteTypes {
     | '/custos'
     | '/encordoamento'
     | '/estoque'
+    | '/fornecedores'
     | '/inteligencia'
     | '/login'
     | '/notas'
@@ -185,6 +196,7 @@ export interface FileRouteTypes {
     | '/custos'
     | '/encordoamento'
     | '/estoque'
+    | '/fornecedores'
     | '/inteligencia'
     | '/login'
     | '/notas'
@@ -202,6 +214,7 @@ export interface RootRouteChildren {
   CustosRoute: typeof CustosRoute
   EncordoamentoRoute: typeof EncordoamentoRoute
   EstoqueRoute: typeof EstoqueRoute
+  FornecedoresRoute: typeof FornecedoresRoute
   InteligenciaRoute: typeof InteligenciaRoute
   LoginRoute: typeof LoginRoute
   NotasRoute: typeof NotasRoute
@@ -254,6 +267,13 @@ declare module '@tanstack/react-router' {
       path: '/estoque'
       fullPath: '/estoque'
       preLoaderRoute: typeof EstoqueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fornecedores': {
+      id: '/fornecedores'
+      path: '/fornecedores'
+      fullPath: '/fornecedores'
+      preLoaderRoute: typeof FornecedoresRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/inteligencia': {
@@ -322,6 +342,7 @@ const rootRouteChildren: RootRouteChildren = {
   CustosRoute: CustosRoute,
   EncordoamentoRoute: EncordoamentoRoute,
   EstoqueRoute: EstoqueRoute,
+  FornecedoresRoute: FornecedoresRoute,
   InteligenciaRoute: InteligenciaRoute,
   LoginRoute: LoginRoute,
   NotasRoute: NotasRoute,

@@ -38,6 +38,7 @@ interface Movement {
 
 const KIND_LABEL: Record<string, string> = {
   entrada_nf: "Entrada NF",
+  estorno_nf: "Estorno de NF",
   entrada_manual: "Entrada manual",
   venda: "Venda",
   cancelamento_venda: "Venda cancelada",

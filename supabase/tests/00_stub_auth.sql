@@ -3,3 +3,4 @@ create schema auth;
 create table auth.users (id uuid primary key, email text);
 create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
 do $$ begin create role authenticated; exception when others then null; end $$;
+do $$ begin create role anon; exception when others then null; end $$;

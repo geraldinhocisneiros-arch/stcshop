@@ -148,3 +148,24 @@ export interface Category {
   id: string;
   name: string;
 }
+
+export interface Supplier {
+  id: string;
+  name: string;
+  trade_name: string | null;
+  cnpj: string | null;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  city: string | null;
+  notes: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export const supplierLabel = (s: Pick<Supplier, "name" | "trade_name">) => s.trade_name || s.name;
+
+export const fmtCnpj = (v: string | null | undefined) => {
+  const d = (v ?? "").replace(/\D/g, "");
+  return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : v || "";
+};
