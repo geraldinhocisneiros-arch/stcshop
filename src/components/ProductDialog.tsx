@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ListPicker } from "@/components/ListPicker";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { fmtBRL, fmtPct, parseDecimal, round2 } from "@/lib/format";
 import { analyzePrice, PRICE_STATUS_LABEL, type CostStructure } from "@/lib/pricing";
 import type { Product } from "@/lib/types";
@@ -38,6 +39,9 @@ export function ProductDialog({
   onSaved: (p: Product) => void;
   allowInitialStock?: boolean;
 }) {
+  const { isAdmin } = useAuth();
+  // vendedor define o preço no cadastro; depois só o admin muda preço/promoção (o banco também bloqueia)
+  const canEditPrice = isAdmin || !product;
   const [f, setF] = useState<Record<string, string>>({});
   const [kind, setKind] = useState<"produto" | "servico">("produto");
   const [active, setActive] = useState(true);
@@ -69,8 +73,7 @@ export function ProductDialog({
     });
   }, [open, product, prefill]);
 
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setF({ ...f, [k]: e.target.value });
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
 
   const price = parseDecimal(f.sale_price);
   const cost = parseDecimal(f.cost_price);
@@ -83,7 +86,7 @@ export function ProductDialog({
     if (!f.name?.trim()) return toast.error("Informe o apelido do produto");
     if (stockChanged && !f.stock_reason?.trim()) return toast.error("Informe o motivo da alteração do estoque");
     const factor = parseDecimal(f.nf_unit_factor) || 1;
-    const row = {
+    const row: Record<string, unknown> = {
       kind,
       active,
       name: f.name.trim(),
@@ -101,6 +104,16 @@ export function ProductDialog({
       min_stock: parseDecimal(f.min_stock),
       notes: f.notes.trim() || null,
     };
+    if (!isAdmin) {
+      // custo é só do admin; preço de produto já cadastrado também
+      delete row.cost_price;
+      delete row.promo_price;
+      delete row.promo_until;
+      if (product) {
+        delete row.sale_price;
+        delete row.kind;
+      }
+    }
     setBusy(true);
     const res = product
       ? await supabase.from("shop_products").update(row).eq("id", product.id).select().single()
@@ -118,7 +131,7 @@ export function ProductDialog({
         p_product_id: saved.id,
         p_kind: "entrada_manual",
         p_qty: initial,
-        p_unit_cost: cost || null,
+        p_unit_cost: isAdmin ? cost || null : null,
         p_notes: "Estoque inicial",
       });
       if (error) toast.error(`Produto salvo, mas o estoque inicial falhou: ${error.message}`);
@@ -151,7 +164,7 @@ export function ProductDialog({
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1">
             <Label>Tipo</Label>
-            <Select value={kind} onValueChange={(v) => setKind(v as "produto" | "servico")}>
+            <Select value={kind} onValueChange={(v) => setKind(v as "produto" | "servico")} disabled={!isAdmin && !!product}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -174,8 +187,7 @@ export function ProductDialog({
               <Label>Nome na nota fiscal</Label>
               <Input value={f.nf_name ?? ""} onChange={set("nf_name")} placeholder="Ex.: BOLA TENIS WILSON US OPEN TB C/3" />
               <p className="text-xs text-muted-foreground">
-                Igual à descrição da nota do fornecedor. Não precisa digitar: na primeira importação de nota o sistema preenche e
-                memoriza.
+                Igual à descrição da nota do fornecedor. Não precisa digitar: na primeira importação de nota o sistema preenche e memoriza.
               </p>
             </div>
           )}
@@ -213,27 +225,32 @@ export function ProductDialog({
           )}
           <div className="space-y-1">
             <Label>Preço de venda (R$)</Label>
-            <Input value={f.sale_price ?? ""} onChange={set("sale_price")} className="text-lg font-semibold" />
+            <Input value={f.sale_price ?? ""} onChange={set("sale_price")} className="text-lg font-semibold" disabled={!canEditPrice} />
+            {!canEditPrice && <p className="text-xs text-muted-foreground">Alteração de preço é feita pelo administrador.</p>}
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label>Preço promocional</Label>
-              <Input value={f.promo_price ?? ""} onChange={set("promo_price")} placeholder="—" />
+          {isAdmin && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label>Preço promocional</Label>
+                <Input value={f.promo_price ?? ""} onChange={set("promo_price")} placeholder="—" />
+              </div>
+              <div className="space-y-1">
+                <Label>Promoção até</Label>
+                <Input type="date" value={f.promo_until ?? ""} onChange={set("promo_until")} />
+              </div>
             </div>
+          )}
+          {isAdmin && (
             <div className="space-y-1">
-              <Label>Promoção até</Label>
-              <Input type="date" value={f.promo_until ?? ""} onChange={set("promo_until")} />
+              <Label>{kind === "produto" ? "Custo médio (R$)" : "Custo direto por serviço (R$)"}</Label>
+              <Input value={f.cost_price ?? ""} onChange={set("cost_price")} />
+              <p className="text-xs text-muted-foreground">
+                {kind === "produto"
+                  ? "Atualizado automaticamente a cada nota importada (média ponderada)."
+                  : "Ex.: comissão paga ao encordoador por raquete. A mão de obra fixa entra em Custos."}
+              </p>
             </div>
-          </div>
-          <div className="space-y-1">
-            <Label>{kind === "produto" ? "Custo médio (R$)" : "Custo direto por serviço (R$)"}</Label>
-            <Input value={f.cost_price ?? ""} onChange={set("cost_price")} />
-            <p className="text-xs text-muted-foreground">
-              {kind === "produto"
-                ? "Atualizado automaticamente a cada nota importada (média ponderada)."
-                : "Ex.: comissão paga ao encordoador por raquete. A mão de obra fixa entra em Custos."}
-            </p>
-          </div>
+          )}
           {kind === "produto" && (
             <>
               <div className="space-y-1">

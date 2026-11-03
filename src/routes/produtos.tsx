@@ -49,10 +49,7 @@ function ProdutosPage() {
     load();
   }, [load]);
 
-  const categories = useMemo(
-    () => [...new Set(products.map((p) => p.category).filter(Boolean) as string[])].sort(),
-    [products],
-  );
+  const categories = useMemo(() => [...new Set(products.map((p) => p.category).filter(Boolean) as string[])].sort(), [products]);
   const target = (settings?.target_margin_pct ?? 0) / 100;
 
   const rows = useMemo(
@@ -69,25 +66,27 @@ function ProdutosPage() {
     <AppLayout
       title="Produtos e serviços"
       actions={
-        isAdmin && (
-          <>
-            <Button size="sm" variant="outline" onClick={() => setListDialog("category")}>
-              <Tags className="mr-1 h-4 w-4" /> Categorias
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setListDialog("brand")}>
-              <Award className="mr-1 h-4 w-4" /> Marcas
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditing(null);
-                setDialog(true);
-              }}
-            >
-              <Plus className="mr-1 h-4 w-4" /> Novo
-            </Button>
-          </>
-        )
+        <>
+          {isAdmin && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setListDialog("category")}>
+                <Tags className="mr-1 h-4 w-4" /> Categorias
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setListDialog("brand")}>
+                <Award className="mr-1 h-4 w-4" /> Marcas
+              </Button>
+            </>
+          )}
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditing(null);
+              setDialog(true);
+            }}
+          >
+            <Plus className="mr-1 h-4 w-4" /> Novo
+          </Button>
+        </>
       }
     >
       <div className="mb-4 flex flex-wrap gap-2">
@@ -136,9 +135,8 @@ function ProdutosPage() {
               {rows.map(({ p, pa }) => (
                 <TableRow
                   key={p.id}
-                  className={cn(isAdmin && "cursor-pointer", !p.active && "opacity-50")}
+                  className={cn("cursor-pointer", !p.active && "opacity-50")}
                   onClick={() => {
-                    if (!isAdmin) return;
                     setEditing(p);
                     setDialog(true);
                   }}
@@ -165,7 +163,9 @@ function ProdutosPage() {
                   <TableCell className="text-right font-medium tabular-nums">
                     {fmtBRL(p.sale_price)}
                     {effectivePrice(p) !== Number(p.sale_price) && (
-                      <div className="text-xs text-accent-foreground">promo {fmtBRL(p.promo_price)} até {fmtDate(p.promo_until)}</div>
+                      <div className="text-xs text-accent-foreground">
+                        promo {fmtBRL(p.promo_price)} até {fmtDate(p.promo_until)}
+                      </div>
                     )}
                   </TableCell>
                   {isAdmin && (
@@ -201,14 +201,7 @@ function ProdutosPage() {
         </CardContent>
       </Card>
 
-      <ProductDialog
-        open={dialog}
-        onOpenChange={setDialog}
-        product={editing}
-        cs={cs}
-        targetMargin={target}
-        onSaved={load}
-      />
+      <ProductDialog open={dialog} onOpenChange={setDialog} product={editing} cs={cs} targetMargin={target} onSaved={load} />
       <ListManagerDialog
         kind={listDialog ?? "category"}
         open={listDialog !== null}
