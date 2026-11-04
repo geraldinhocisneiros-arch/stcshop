@@ -10,11 +10,11 @@ select list_price, unit_price from shop_sale_lines where unit_price = 10 order b
 select sale_price = 39.9 as cadastro_intacto from shop_products where id='aaaaaaaa-0000-0000-0000-000000000001';
 -- preço negativo: deve falhar
 select shop_finalize_sale('[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":1,"unit_price":-1}]','[{"method":"pix","amount":0}]');
--- vendedor altera o preço do cadastro pela função e fica registrado
-select shop_set_sale_price('aaaaaaaa-0000-0000-0000-000000000001', 42.5);
+-- mudança do preço no cadastro fica registrada com o nome de quem mudou
+update shop_products set sale_price = 42.5 where id='aaaaaaaa-0000-0000-0000-000000000001';
 select sale_price from shop_products where id='aaaaaaaa-0000-0000-0000-000000000001';
 select old_price, new_price, changed_by_name from shop_price_changes order by changed_at desc limit 1;
-select shop_set_sale_price('aaaaaaaa-0000-0000-0000-000000000001', 39.9);
+update shop_products set sale_price = 39.9 where id='aaaaaaaa-0000-0000-0000-000000000001';
 -- desconto 20%: deve falhar
 select shop_finalize_sale('[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":1,"unit_price":39.9}]','[{"method":"pix","amount":31.92}]', 7.98);
 -- desconto 10%: ok

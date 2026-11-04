@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { ListManagerDialog } from "@/components/ListManagerDialog";
 import { ProductDialog } from "@/components/ProductDialog";
-import { SalePriceDialog } from "@/components/SalePriceDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,7 +33,6 @@ function ProdutosPage() {
   const [status, setStatus] = useState("ativos");
   const [editing, setEditing] = useState<Product | null>(null);
   const [dialog, setDialog] = useState(false);
-  const [priceDialog, setPriceDialog] = useState(false);
   const [listDialog, setListDialog] = useState<"category" | "brand" | null>(null);
 
   const load = useCallback(async () => {
@@ -51,10 +49,7 @@ function ProdutosPage() {
     load();
   }, [load]);
 
-  const categories = useMemo(
-    () => [...new Set(products.map((p) => p.category).filter(Boolean) as string[])].sort(),
-    [products],
-  );
+  const categories = useMemo(() => [...new Set(products.map((p) => p.category).filter(Boolean) as string[])].sort(), [products]);
   const target = (settings?.target_margin_pct ?? 0) / 100;
 
   const rows = useMemo(
@@ -71,25 +66,27 @@ function ProdutosPage() {
     <AppLayout
       title="Produtos e serviços"
       actions={
-        isAdmin && (
-          <>
-            <Button size="sm" variant="outline" onClick={() => setListDialog("category")}>
-              <Tags className="mr-1 h-4 w-4" /> Categorias
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setListDialog("brand")}>
-              <Award className="mr-1 h-4 w-4" /> Marcas
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditing(null);
-                setDialog(true);
-              }}
-            >
-              <Plus className="mr-1 h-4 w-4" /> Novo
-            </Button>
-          </>
-        )
+        <>
+          {isAdmin && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setListDialog("category")}>
+                <Tags className="mr-1 h-4 w-4" /> Categorias
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setListDialog("brand")}>
+                <Award className="mr-1 h-4 w-4" /> Marcas
+              </Button>
+            </>
+          )}
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditing(null);
+              setDialog(true);
+            }}
+          >
+            <Plus className="mr-1 h-4 w-4" /> Novo
+          </Button>
+        </>
       }
     >
       <div className="mb-4 flex flex-wrap gap-2">
@@ -139,11 +136,9 @@ function ProdutosPage() {
                 <TableRow
                   key={p.id}
                   className={cn("cursor-pointer", !p.active && "opacity-50")}
-                  title={isAdmin ? undefined : "Clique para alterar o preço de venda"}
                   onClick={() => {
                     setEditing(p);
-                    if (isAdmin) setDialog(true);
-                    else setPriceDialog(true);
+                    setDialog(true);
                   }}
                 >
                   <TableCell className="font-medium">
@@ -168,7 +163,9 @@ function ProdutosPage() {
                   <TableCell className="text-right font-medium tabular-nums">
                     {fmtBRL(p.sale_price)}
                     {effectivePrice(p) !== Number(p.sale_price) && (
-                      <div className="text-xs text-accent-foreground">promo {fmtBRL(p.promo_price)} até {fmtDate(p.promo_until)}</div>
+                      <div className="text-xs text-accent-foreground">
+                        promo {fmtBRL(p.promo_price)} até {fmtDate(p.promo_until)}
+                      </div>
                     )}
                   </TableCell>
                   {isAdmin && (
@@ -204,15 +201,7 @@ function ProdutosPage() {
         </CardContent>
       </Card>
 
-      <ProductDialog
-        open={dialog}
-        onOpenChange={setDialog}
-        product={editing}
-        cs={cs}
-        targetMargin={target}
-        onSaved={load}
-      />
-      <SalePriceDialog open={priceDialog} onOpenChange={setPriceDialog} product={editing} onSaved={load} />
+      <ProductDialog open={dialog} onOpenChange={setDialog} product={editing} cs={cs} targetMargin={target} onSaved={load} />
       <ListManagerDialog
         kind={listDialog ?? "category"}
         open={listDialog !== null}

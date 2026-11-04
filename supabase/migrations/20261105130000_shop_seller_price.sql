@@ -1,7 +1,7 @@
 -- Vendedor pode alterar preço de venda
 -- - No caixa: o preço do item vale só para aquela venda (fica gravado no item da venda).
--- - No cadastro: o vendedor muda só o preço de venda, pela função shop_set_sale_price
---   (o resto do cadastro, custo e margem continuam só do administrador).
+-- - No cadastro: o vendedor também muda o preço de venda. Promoção e custo continuam
+--   só do administrador (trava shop_products_guard, que veio de 20261105120000).
 -- - Toda mudança do preço de venda no cadastro fica em shop_price_changes (quem, de, para, quando),
 --   venha ela do vendedor ou do administrador.
 -- O limite de desconto do vendedor continua valendo sobre o total da venda.
@@ -35,14 +35,37 @@ drop trigger if exists shop_products_price_log on public.shop_products;
 create trigger shop_products_price_log after update of sale_price on public.shop_products
   for each row execute function public.shop_log_price_change();
 
-create or replace function public.shop_set_sale_price(p_product_id uuid, p_price numeric)
-returns void language plpgsql security definer set search_path = public as $$
+-- Trava do cadastro: igual à de 20261105120000_shop_seller_products_stock,
+-- mas o vendedor agora pode mudar o preço de venda (promoção e custo seguem só do admin).
+create or replace function public.shop_products_guard()
+returns trigger language plpgsql set search_path = public as $$
 begin
-  if not public.shop_is_member() then raise exception 'Sem permissão'; end if;
-  if p_price is null or p_price < 0 then raise exception 'Preço inválido'; end if;
-  update shop_products set sale_price = round(p_price, 2) where id = p_product_id;
-  if not found then raise exception 'Produto não encontrado'; end if;
+  if current_user not in ('authenticated', 'anon') or public.shop_is_admin() then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    new.cost_price := 0;
+    new.last_cost := null;
+    new.stock_qty := 0;
+    new.promo_price := null;
+    new.promo_until := null;
+  else
+    if new.promo_price is distinct from old.promo_price
+       or new.promo_until is distinct from old.promo_until then
+      raise exception 'Só o administrador altera promoção';
+    end if;
+    if new.sale_price is null or new.sale_price < 0 then
+      raise exception 'Preço inválido';
+    end if;
+    new.cost_price := old.cost_price;
+    new.last_cost := old.last_cost;
+    new.stock_qty := old.stock_qty;
+    new.kind := old.kind;
+  end if;
+  return new;
 end $$;
+
+drop function if exists public.shop_set_sale_price(uuid, numeric);
 
 -- Venda: igual à versão anterior, sem a trava "só o administrador altera preço".
 create or replace function public.shop_finalize_sale(
