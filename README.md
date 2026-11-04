@@ -10,10 +10,10 @@ com shadcn/ui e Tailwind.
 
 | Tela | Quem | O que faz |
 |---|---|---|
-| Caixa (PDV) | todos | Abre o caixa, vende (busca por apelido, nome da nota, código ou leitor de código de barras), pagamento misto, troco, sangria/suprimento e fechamento. **A baixa no estoque é automática.** |
+| Caixa (PDV) | todos | Abre o caixa, vende (busca por apelido, nome da nota, código ou leitor de código de barras), pagamento misto, troco, sangria/suprimento e fechamento. Qualquer usuário pode mudar o preço do item só naquela venda. **A baixa no estoque é automática.** |
 | Vendas | todos | Histórico e cancelamento (devolve ao estoque; vendedor só cancela no caixa aberto). |
 | Encordoamento | todos | Fila de ordens (raquete, corda, tensão, prazo), aviso por WhatsApp e cobrança no caixa. |
-| Produtos | todos (edição: admin) | Cadastro com **apelido** + **nome da nota fiscal**, preço, promoção, e análise de margem ao vivo. |
+| Produtos | todos (edição: admin; vendedor altera só o preço de venda) | Cadastro com **apelido** + **nome da nota fiscal**, preço, promoção, e análise de margem ao vivo. Toda mudança de preço de venda fica registrada (quem, de, para, quando). |
 | Estoque | todos (ajuste: admin) | Saldo, valor parado, movimentações, inventário/perda/entrada manual. |
 | Notas fiscais | admin | Importa **XML** (exato) ou **PDF/DANFE** (lido pelo Claude). Casa os itens com o cadastro, rateia frete/IPI/ST/desconto, dá entrada e recalcula o custo médio. |
 | Fechamentos | todos | Relatório de cada caixa para prestar contas ao dono (imprimir/PDF). |

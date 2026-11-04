@@ -4,8 +4,16 @@ insert into shop_user_roles values ('22222222-2222-2222-2222-222222222222','Vend
 select shop_open_cash(0);
 select set_config('test.uid','22222222-2222-2222-2222-222222222222',false);
 select shop_open_cash(0) is not null as seller_opened;
--- preço alterado: deve falhar
-select shop_finalize_sale('[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":1,"unit_price":10}]','[{"method":"pix","amount":10}]');
+-- preço alterado no caixa: vendedor pode (vale só para esta venda)
+select shop_finalize_sale('[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":1,"unit_price":10}]','[{"method":"pix","amount":10}]')->>'total' as preco_caixa_ok;
+select sale_price = 39.9 as cadastro_intacto from shop_products where id='aaaaaaaa-0000-0000-0000-000000000001';
+-- preço negativo: deve falhar
+select shop_finalize_sale('[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":1,"unit_price":-1}]','[{"method":"pix","amount":0}]');
+-- vendedor altera o preço do cadastro pela função e fica registrado
+select shop_set_sale_price('aaaaaaaa-0000-0000-0000-000000000001', 42.5);
+select sale_price from shop_products where id='aaaaaaaa-0000-0000-0000-000000000001';
+select old_price, new_price, changed_by_name from shop_price_changes order by changed_at desc limit 1;
+select shop_set_sale_price('aaaaaaaa-0000-0000-0000-000000000001', 39.9);
 -- desconto 20%: deve falhar
 select shop_finalize_sale('[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":1,"unit_price":39.9}]','[{"method":"pix","amount":31.92}]', 7.98);
 -- desconto 10%: ok

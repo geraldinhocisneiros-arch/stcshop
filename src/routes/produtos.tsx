@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { ListManagerDialog } from "@/components/ListManagerDialog";
 import { ProductDialog } from "@/components/ProductDialog";
+import { SalePriceDialog } from "@/components/SalePriceDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,7 @@ function ProdutosPage() {
   const [status, setStatus] = useState("ativos");
   const [editing, setEditing] = useState<Product | null>(null);
   const [dialog, setDialog] = useState(false);
+  const [priceDialog, setPriceDialog] = useState(false);
   const [listDialog, setListDialog] = useState<"category" | "brand" | null>(null);
 
   const load = useCallback(async () => {
@@ -136,11 +138,12 @@ function ProdutosPage() {
               {rows.map(({ p, pa }) => (
                 <TableRow
                   key={p.id}
-                  className={cn(isAdmin && "cursor-pointer", !p.active && "opacity-50")}
+                  className={cn("cursor-pointer", !p.active && "opacity-50")}
+                  title={isAdmin ? undefined : "Clique para alterar o preço de venda"}
                   onClick={() => {
-                    if (!isAdmin) return;
                     setEditing(p);
-                    setDialog(true);
+                    if (isAdmin) setDialog(true);
+                    else setPriceDialog(true);
                   }}
                 >
                   <TableCell className="font-medium">
@@ -209,6 +212,7 @@ function ProdutosPage() {
         targetMargin={target}
         onSaved={load}
       />
+      <SalePriceDialog open={priceDialog} onOpenChange={setPriceDialog} product={editing} onSaved={load} />
       <ListManagerDialog
         kind={listDialog ?? "category"}
         open={listDialog !== null}
