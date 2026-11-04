@@ -16,7 +16,7 @@ com shadcn/ui e Tailwind.
 | Produtos | todos (edição: admin; vendedor altera só o preço de venda) | Cadastro com **apelido** + **nome da nota fiscal**, preço, promoção, e análise de margem ao vivo. Toda mudança de preço de venda fica registrada (quem, de, para, quando). |
 | Estoque | todos (ajuste: admin) | Saldo, valor parado, movimentações, inventário/perda/entrada manual. |
 | Notas fiscais | admin | Importa **XML** (exato) ou **PDF/DANFE** (lido pelo Claude). Casa os itens com o cadastro, rateia frete/IPI/ST/desconto, dá entrada e recalcula o custo médio. |
-| Fechamentos | todos | Relatório de cada caixa para prestar contas ao dono (imprimir/PDF). |
+| Fechamentos | todos | Relatório de cada caixa para prestar contas ao dono (imprimir/PDF), com os itens vendidos abaixo do preço de tabela (quem vendeu, quanto deixou de entrar) e os preços alterados no cadastro durante o caixa. |
 | Relatórios | admin | Mês: faturamento, ticket, lucro bruto, mais/menos vendidos, por categoria e forma de pagamento. Exporta Excel. |
 | Inteligência | admin | Curva ABC (faturamento ou lucro), o que comprar, promoções sugeridas com preço e piso, preços abaixo da meta. |
 | Custos e preços | admin | Custos fixos e percentuais, ponto de equilíbrio, simulador de preço, resultado estimado por mês. |
