@@ -24,6 +24,15 @@ interface Movement {
   created_at: string;
 }
 
+interface PriceChange {
+  id: string;
+  old_price: number | null;
+  new_price: number;
+  changed_by_name: string | null;
+  changed_at: string;
+  shop_products: { name: string } | null;
+}
+
 function FechamentoReport() {
   const { id } = Route.useParams();
   const [session, setSession] = useState<CashSession | null>(null);
@@ -33,6 +42,7 @@ function FechamentoReport() {
   const [moves, setMoves] = useState<Movement[]>([]);
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [priceChanges, setPriceChanges] = useState<PriceChange[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -54,6 +64,15 @@ function FechamentoReport() {
         setMoves((mv.data ?? []) as Movement[]);
         setMethods(me);
         setNames(Object.fromEntries((us.data ?? []).map((u: any) => [u.user_id, u.full_name])));
+        // mudanças de preço no cadastro feitas enquanto este caixa esteve aberto
+        const sess = s.data as CashSession;
+        const pc = await supabase
+          .from("shop_price_changes")
+          .select("id, old_price, new_price, changed_by_name, changed_at, shop_products(name)")
+          .gte("changed_at", sess.opened_at)
+          .lte("changed_at", sess.closed_at ?? new Date().toISOString())
+          .order("changed_at");
+        setPriceChanges((pc.data ?? []) as unknown as PriceChange[]);
       } catch (e) {
         toast.error(errMsg(e));
       }
@@ -71,6 +90,18 @@ function FechamentoReport() {
     }
     return [...m.values()].sort((a, b) => b.total - a.total);
   }, [lines]);
+
+  // itens vendidos abaixo do preço de tabela (sem contar o desconto da venda, que aparece à parte)
+  const belowList = useMemo(
+    () =>
+      lines
+        .filter((l) => l.list_price != null && Number(l.unit_price) < Number(l.list_price) - 0.009)
+        .map((l) => ({ ...l, lost: round2((Number(l.list_price) - Number(l.unit_price)) * Number(l.qty)) }))
+        .sort((a, b) => a.sale_number - b.sale_number),
+    [lines],
+  );
+  const lostTotal = round2(belowList.reduce((t, l) => t + l.lost, 0));
+  const tracksListPrice = lines.some((l) => l.list_price != null);
 
   if (!session || !summary) return <AppLayout title="Relatório do caixa">Carregando…</AppLayout>;
 
@@ -112,6 +143,13 @@ function FechamentoReport() {
           <Box label="Taxas de cartão" value={fmtBRL(s.fees)} />
           <Box label="Lucro bruto" value={fmtBRL(grossProfit)} hint={fmtPct(s.total ? grossProfit / s.total : 0)} />
           <Box label="Canceladas" value={String(s.canceled)} />
+          {tracksListPrice && (
+            <Box
+              label="Abaixo da tabela"
+              value={fmtBRL(lostTotal)}
+              hint={belowList.length ? `${belowList.length} ${belowList.length === 1 ? "item" : "itens"} · fora os descontos` : "nenhum item"}
+            />
+          )}
           {(summary.on_account ?? 0) > 0 && <Box label="Vendido no fiado" value={fmtBRL(summary.on_account)} hint="a receber" />}
           {summary.receipts && Object.keys(summary.receipts).length > 0 && (
             <Box
@@ -200,6 +238,76 @@ function FechamentoReport() {
             </Table>
           </CardContent>
         </Card>
+
+        {belowList.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Vendido abaixo do preço de tabela</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Venda</TableHead>
+                    <TableHead>Vendedor</TableHead>
+                    <TableHead>Produto</TableHead>
+                    <TableHead className="text-right">Qtd</TableHead>
+                    <TableHead className="text-right">Tabela</TableHead>
+                    <TableHead className="text-right">Vendido</TableHead>
+                    <TableHead className="text-right">Deixou de entrar</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {belowList.map((l) => (
+                    <TableRow key={l.id}>
+                      <TableCell className="whitespace-nowrap">
+                        Nº {l.sale_number} <span className="text-xs text-muted-foreground">{fmtDateTime(l.created_at)}</span>
+                      </TableCell>
+                      <TableCell>{names[l.sold_by ?? ""] ?? "—"}</TableCell>
+                      <TableCell>{l.product_name}</TableCell>
+                      <TableCell className="text-right">{fmtNum(l.qty, 2)}</TableCell>
+                      <TableCell className="text-right">{fmtBRL(l.list_price)}</TableCell>
+                      <TableCell className="text-right">{fmtBRL(l.unit_price)}</TableCell>
+                      <TableCell className="text-right font-medium text-destructive">{fmtBRL(l.lost)}</TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-right font-medium">
+                      Total
+                    </TableCell>
+                    <TableCell className="text-right font-semibold text-destructive">{fmtBRL(lostTotal)}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+              <p className="px-4 py-2 text-xs text-muted-foreground">
+                Tabela = preço que o caixa sugeriu na hora (promoção vigente ou preço do cadastro). O desconto no total da venda não
+                entra aqui: está em "Descontos dados".
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {priceChanges.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Preços alterados no cadastro durante este caixa</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1 text-sm">
+              {priceChanges.map((c) => (
+                <div key={c.id} className="flex justify-between gap-2">
+                  <span>
+                    {fmtDateTime(c.changed_at)} · {c.changed_by_name || "—"} · {c.shop_products?.name ?? "—"}
+                  </span>
+                  <span
+                    className={`whitespace-nowrap tabular-nums ${c.old_price != null && c.new_price < c.old_price ? "text-destructive" : ""}`}
+                  >
+                    {c.old_price == null ? "—" : fmtBRL(c.old_price)} → {fmtBRL(c.new_price)}
+                  </span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {moves.length > 0 && (
           <Card>

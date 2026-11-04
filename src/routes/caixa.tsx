@@ -19,7 +19,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { errMsg, loadCustomers, loadMethods, loadProducts, type CustomerWithBalance } from "@/lib/data";
 import { effectivePrice, fmtBRL, fmtDateTime, fmtNum, matchesSearch, parseDecimal, round2 } from "@/lib/format";
 import type { CashSession, PaymentMethod, Product, StringingOrder } from "@/lib/types";
-import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { ArrowDownCircle, ArrowUpCircle, Lock, Minus, Plus, Search, Trash2 } from "lucide-react";
 
@@ -40,7 +39,6 @@ interface PaymentLine {
 }
 
 function CaixaPage() {
-  const { isAdmin } = useAuth();
   const { ordem } = Route.useSearch();
   const navigate = useNavigate();
   const [session, setSession] = useState<CashSession | null | undefined>(undefined);
@@ -306,19 +304,19 @@ function CaixaPage() {
                           </Button>
                         </div>
                         <div className="w-28">
-                          {isAdmin ? (
-                            <Input
-                              key={`${i.product.id}-${i.unit_price}`}
-                              className="h-8 text-right"
-                              defaultValue={i.unit_price.toFixed(2).replace(".", ",")}
-                              onBlur={(e) => {
-                                const v = parseDecimal(e.target.value);
-                                setPayments([]);
-                                setCart((c) => c.map((x) => (x.product.id === i.product.id ? { ...x, unit_price: v } : x)));
-                              }}
-                            />
-                          ) : (
-                            <div className="text-right tabular-nums">{fmtBRL(i.unit_price)}</div>
+                          <Input
+                            key={`${i.product.id}-${i.unit_price}`}
+                            className="h-8 text-right"
+                            defaultValue={i.unit_price.toFixed(2).replace(".", ",")}
+                            onBlur={(e) => {
+                              const v = parseDecimal(e.target.value);
+                              setPayments([]);
+                              setCart((c) => c.map((x) => (x.product.id === i.product.id ? { ...x, unit_price: v } : x)));
+                            }}
+                            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                          />
+                          {Math.abs(i.unit_price - effectivePrice(i.product)) > 0.009 && (
+                            <div className="text-right text-xs text-muted-foreground">tabela {fmtBRL(effectivePrice(i.product))}</div>
                           )}
                         </div>
                         <div className="w-24 text-right font-semibold tabular-nums">{fmtBRL(i.qty * i.unit_price)}</div>

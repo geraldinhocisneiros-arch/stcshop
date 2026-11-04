@@ -40,8 +40,6 @@ export function ProductDialog({
   allowInitialStock?: boolean;
 }) {
   const { isAdmin } = useAuth();
-  // vendedor define o preço no cadastro; depois só o admin muda preço/promoção (o banco também bloqueia)
-  const canEditPrice = isAdmin || !product;
   const [f, setF] = useState<Record<string, string>>({});
   const [kind, setKind] = useState<"produto" | "servico">("produto");
   const [active, setActive] = useState(true);
@@ -105,14 +103,11 @@ export function ProductDialog({
       notes: f.notes.trim() || null,
     };
     if (!isAdmin) {
-      // custo é só do admin; preço de produto já cadastrado também
+      // custo e promoção são só do admin (o banco também bloqueia); preço de venda o vendedor pode mudar
       delete row.cost_price;
       delete row.promo_price;
       delete row.promo_until;
-      if (product) {
-        delete row.sale_price;
-        delete row.kind;
-      }
+      if (product) delete row.kind;
     }
     setBusy(true);
     const res = product
@@ -225,8 +220,10 @@ export function ProductDialog({
           )}
           <div className="space-y-1">
             <Label>Preço de venda (R$)</Label>
-            <Input value={f.sale_price ?? ""} onChange={set("sale_price")} className="text-lg font-semibold" disabled={!canEditPrice} />
-            {!canEditPrice && <p className="text-xs text-muted-foreground">Alteração de preço é feita pelo administrador.</p>}
+            <Input value={f.sale_price ?? ""} onChange={set("sale_price")} className="text-lg font-semibold" />
+            {!isAdmin && product && (
+              <p className="text-xs text-muted-foreground">Vale para as próximas vendas. A mudança fica registrada com seu nome.</p>
+            )}
           </div>
           {isAdmin && (
             <div className="grid grid-cols-2 gap-2">
