@@ -254,13 +254,9 @@ function CaixaPage() {
               {search.trim() && results.length === 0 && (
                 <div className="absolute z-20 mt-1 w-full rounded-md border bg-popover p-3 text-sm shadow-lg">
                   <span className="text-muted-foreground">Nenhum produto encontrado para "{search.trim()}".</span>
-                  {isAdmin ? (
-                    <Button size="sm" className="ml-2" onClick={openNewProduct}>
-                      <PackagePlus className="mr-1 h-4 w-4" /> Cadastrar agora
-                    </Button>
-                  ) : (
-                    <span className="ml-1 text-muted-foreground">Peça ao administrador para cadastrar.</span>
-                  )}
+                  <Button size="sm" className="ml-2" onClick={openNewProduct}>
+                    <PackagePlus className="mr-1 h-4 w-4" /> Cadastrar agora
+                  </Button>
                 </div>
               )}
               {results.length > 0 && (
@@ -290,13 +286,11 @@ function CaixaPage() {
               )}
             </div>
 
-            {isAdmin && (
-              <div className="-mt-2 text-right">
-                <Button size="sm" variant="ghost" onClick={openNewProduct}>
-                  <PackagePlus className="mr-1 h-4 w-4" /> Novo produto
-                </Button>
-              </div>
-            )}
+            <div className="-mt-2 text-right">
+              <Button size="sm" variant="ghost" onClick={openNewProduct}>
+                <PackagePlus className="mr-1 h-4 w-4" /> Novo produto
+              </Button>
+            </div>
 
             {orderRef && (
               <div className="rounded-md border border-primary/30 bg-secondary p-3 text-sm">
@@ -500,20 +494,18 @@ function CaixaPage() {
         </div>
       )}
 
-      {isAdmin && (
-        <ProductDialog
-          open={newProduct !== null}
-          onOpenChange={(v) => !v && setNewProduct(null)}
-          prefill={newProduct ?? undefined}
-          onSaved={(p) => {
-            // entra na lista do caixa e já vai para o carrinho
-            if (p.active) {
-              setProducts((ps) => [...ps.filter((x) => x.id !== p.id), p]);
-              add(p);
-            } else toast.info("Produto salvo como inativo — não entra no caixa");
-          }}
-        />
-      )}
+      <ProductDialog
+        open={newProduct !== null}
+        onOpenChange={(v) => !v && setNewProduct(null)}
+        prefill={newProduct ?? undefined}
+        onSaved={(p) => {
+          // entra na lista do caixa e já vai para o carrinho
+          if (p.active) {
+            setProducts((ps) => [...ps.filter((x) => x.id !== p.id), p]);
+            add(p);
+          } else toast.info("Produto salvo como inativo — não entra no caixa");
+        }}
+      />
       <OpenCashDialog open={openDialog} onOpenChange={setOpenDialog} onDone={load} />
       <CashMoveDialog kind={moveDialog} onClose={() => setMoveDialog(null)} />
       {session && (
