@@ -151,6 +151,9 @@ function FechamentoReport() {
             />
           )}
           {(summary.on_account ?? 0) > 0 && <Box label="Vendido no fiado" value={fmtBRL(summary.on_account)} hint="a receber" />}
+          {(summary.secretaria ?? 0) > 0 && (
+            <Box label="Lançado na secretaria" value={fmtBRL(summary.secretaria)} hint="repasse da academia" />
+          )}
           {summary.receipts && Object.keys(summary.receipts).length > 0 && (
             <Box
               label="Recebido de clientes"

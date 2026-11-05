@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { CashCloseDialog } from "@/components/CashCloseDialog";
 import { CustomerPicker } from "@/components/CustomerPicker";
+import { ProductDialog, type ProductPrefill } from "@/components/ProductDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,7 @@ import { errMsg, loadCustomers, loadMethods, loadProducts, type CustomerWithBala
 import { effectivePrice, fmtBRL, fmtDateTime, fmtNum, matchesSearch, parseDecimal, round2 } from "@/lib/format";
 import type { CashSession, PaymentMethod, Product, StringingOrder } from "@/lib/types";
 import { toast } from "sonner";
-import { ArrowDownCircle, ArrowUpCircle, Lock, Minus, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, Lock, Minus, PackagePlus, Plus, Search, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/caixa")({
   head: () => ({ meta: [{ title: "Caixa — Squash Tennis Shop" }] }),
@@ -56,6 +57,8 @@ function CaixaPage() {
   const [openDialog, setOpenDialog] = useState(false);
   const [moveDialog, setMoveDialog] = useState<"sangria" | "suprimento" | null>(null);
   const [closeDialog, setCloseDialog] = useState(false);
+  // cadastrar produto sem sair do caixa (o carrinho continua como está)
+  const [newProduct, setNewProduct] = useState<ProductPrefill | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -132,6 +135,11 @@ function CaixaPage() {
     searchRef.current?.focus();
   };
 
+  const openNewProduct = () => {
+    const q = search.trim();
+    setNewProduct(/^\d{8,14}$/.test(q) ? { barcode: q } : q ? { name: q } : {});
+  };
+
   const onSearchKey = (e: React.KeyboardEvent) => {
     if (e.key !== "Enter") return;
     const code = search.trim();
@@ -170,6 +178,8 @@ function CaixaPage() {
     if (Math.abs(remaining) > 0.009) return toast.error("Os pagamentos precisam fechar o total");
     if (cashLine && parseDecimal(cashReceived) > 0 && change < 0) return toast.error("Valor recebido em dinheiro é menor que o devido");
     if (payments.some((p) => p.method === "conta") && !customer) return toast.error("Escolha o cliente para lançar na conta");
+    if (payments.some((p) => p.method === "secretaria") && !customer)
+      return toast.error("Escolha o cliente para a secretaria saber quem cobrar");
     setBusy(true);
     const { data, error } = await supabase.rpc("shop_finalize_sale", {
       p_items: cart.map((i) => ({ product_id: i.product.id, qty: i.qty, unit_price: i.unit_price })),
@@ -184,10 +194,11 @@ function CaixaPage() {
     if (error) return toast.error(error.message);
     const r = data as { number: number; total: number };
     const onAccount = payments.find((p) => p.method === "conta")?.amount ?? 0;
+    const atDesk = payments.find((p) => p.method === "secretaria")?.amount ?? 0;
     toast.success(
       `Venda nº ${r.number} registrada — ${fmtBRL(r.total)}${change > 0 ? ` · troco ${fmtBRL(change)}` : ""}${
         onAccount > 0 ? ` · ${fmtBRL(onAccount)} na conta de ${customer?.name}` : ""
-      }`,
+      }${atDesk > 0 ? ` · ${fmtBRL(atDesk)} para a secretaria cobrar de ${customer?.name}` : ""}`,
     );
     reset();
     load();
@@ -240,6 +251,14 @@ function CaixaPage() {
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={onSearchKey}
               />
+              {search.trim() && results.length === 0 && (
+                <div className="absolute z-20 mt-1 w-full rounded-md border bg-popover p-3 text-sm shadow-lg">
+                  <span className="text-muted-foreground">Nenhum produto encontrado para "{search.trim()}".</span>
+                  <Button size="sm" className="ml-2" onClick={openNewProduct}>
+                    <PackagePlus className="mr-1 h-4 w-4" /> Cadastrar agora
+                  </Button>
+                </div>
+              )}
               {results.length > 0 && (
                 <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border bg-popover shadow-lg">
                   {results.map((p) => (
@@ -265,6 +284,12 @@ function CaixaPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            <div className="-mt-2 text-right">
+              <Button size="sm" variant="ghost" onClick={openNewProduct}>
+                <PackagePlus className="mr-1 h-4 w-4" /> Novo produto
+              </Button>
             </div>
 
             {orderRef && (
@@ -342,7 +367,7 @@ function CaixaPage() {
                   value={customer}
                   onChange={(c) => {
                     setCustomer(c);
-                    if (!c) setPayments((ps) => ps.filter((p) => p.method !== "conta"));
+                    if (!c) setPayments((ps) => ps.filter((p) => p.method !== "conta" && p.method !== "secretaria"));
                   }}
                 />
                 {customer && (
@@ -391,18 +416,31 @@ function CaixaPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                {methods.map((m) => (
-                  <Button
-                    key={m.code}
-                    variant="outline"
-                    className={m.code === "conta" ? "col-span-2" : undefined}
-                    disabled={remaining <= 0 || cart.length === 0 || (m.code === "conta" && !customer)}
-                    title={m.code === "conta" && !customer ? "Escolha o cliente para lançar na conta" : undefined}
-                    onClick={() => addPayment(m.code)}
-                  >
-                    {m.code === "conta" ? (customer ? `Na conta de ${customer.name.split(" ")[0]}` : "Conta do cliente (escolha o cliente)") : m.label}
-                  </Button>
-                ))}
+                {methods.map((m) => {
+                  const needsCustomer = m.code === "conta" || m.code === "secretaria";
+                  return (
+                    <Button
+                      key={m.code}
+                      variant="outline"
+                      className={m.code === "conta" ? "col-span-2" : undefined}
+                      disabled={remaining <= 0 || cart.length === 0 || (needsCustomer && !customer)}
+                      title={
+                        needsCustomer && !customer
+                          ? "Escolha o cliente primeiro"
+                          : m.code === "secretaria"
+                            ? "O cliente acerta na secretaria da academia — não entra no caixa da loja"
+                            : undefined
+                      }
+                      onClick={() => addPayment(m.code)}
+                    >
+                      {m.code === "conta"
+                        ? customer
+                          ? `Na conta de ${customer.name.split(" ")[0]}`
+                          : "Conta do cliente (escolha o cliente)"
+                        : m.label}
+                    </Button>
+                  );
+                })}
               </div>
 
               {payments.length > 0 && (
@@ -456,6 +494,18 @@ function CaixaPage() {
         </div>
       )}
 
+      <ProductDialog
+        open={newProduct !== null}
+        onOpenChange={(v) => !v && setNewProduct(null)}
+        prefill={newProduct ?? undefined}
+        onSaved={(p) => {
+          // entra na lista do caixa e já vai para o carrinho
+          if (p.active) {
+            setProducts((ps) => [...ps.filter((x) => x.id !== p.id), p]);
+            add(p);
+          } else toast.info("Produto salvo como inativo — não entra no caixa");
+        }}
+      />
       <OpenCashDialog open={openDialog} onOpenChange={setOpenDialog} onDone={load} />
       <CashMoveDialog kind={moveDialog} onClose={() => setMoveDialog(null)} />
       {session && (
