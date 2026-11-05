@@ -115,7 +115,7 @@ function ExtratoPage() {
         </Button>
         {isAdmin && (
           <Button variant="ghost" onClick={() => setEntryMode("ajuste")}>
-            <SlidersHorizontal className="mr-1 h-4 w-4" /> Ajuste / saldo anterior
+            <SlidersHorizontal className="mr-1 h-4 w-4" /> Dívida antiga / ajuste
           </Button>
         )}
       </div>
