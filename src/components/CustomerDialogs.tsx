@@ -8,9 +8,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { loadMethods } from "@/lib/data";
-import { fmtBRL, parseDecimal } from "@/lib/format";
+import { fmtBRL, isoDay, parseDecimal, round2 } from "@/lib/format";
+import { useAuth } from "@/hooks/useAuth";
+import { Plus, Trash2 } from "lucide-react";
 import type { Customer, PaymentMethod } from "@/lib/types";
 import { toast } from "sonner";
+
+/** Pendência trazida do sistema antigo, lançada junto com o cadastro. */
+interface OldDebt {
+  date: string; // YYYY-MM-DD
+  description: string;
+  amount: string;
+}
+const emptyDebt = (): OldDebt => ({ date: isoDay(new Date()), description: "", amount: "" });
 
 /** Cadastro / edição de cliente. */
 export function CustomerDialog({
@@ -24,9 +34,13 @@ export function CustomerDialog({
 }) {
   const [f, setF] = useState<Record<string, string>>({});
   const [active, setActive] = useState(true);
+  const { isAdmin } = useAuth();
+  const [debts, setDebts] = useState<OldDebt[]>([]);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!customer) return;
     setActive(customer.active ?? true);
+    setDebts([]);
     setF({
       name: customer.name ?? "",
       phone: customer.phone ?? "",
@@ -39,8 +53,18 @@ export function CustomerDialog({
   if (!customer) return null;
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
 
+  const isNew = !customer.id;
+  const filledDebts = debts.filter((d) => d.amount.trim() || d.description.trim());
+  const debtsTotal = round2(filledDebts.reduce((t, d) => t + parseDecimal(d.amount), 0));
+  const setDebt = (i: number, k: keyof OldDebt, v: string) => setDebts((ds) => ds.map((d, j) => (j === i ? { ...d, [k]: v } : d)));
+
   const save = async () => {
     if (!f.name.trim()) return toast.error("Informe o nome");
+    const today = isoDay(new Date());
+    for (const d of filledDebts) {
+      if (parseDecimal(d.amount) <= 0) return toast.error("Informe o valor de cada pendência");
+      if (!d.date || d.date > today) return toast.error("Data da pendência inválida (não pode ser no futuro)");
+    }
     const row = {
       name: f.name.trim(),
       phone: f.phone.trim() || null,
@@ -50,12 +74,34 @@ export function CustomerDialog({
       notes: f.notes.trim() || null,
       active,
     };
+    setBusy(true);
     const res = customer.id
       ? await supabase.from("shop_customers").update(row).eq("id", customer.id).select("*").single()
       : await supabase.from("shop_customers").insert(row).select("*").single();
-    if (res.error) return toast.error(res.error.message);
-    toast.success("Cliente salvo");
-    onSaved(res.data as Customer);
+    if (res.error) {
+      setBusy(false);
+      return toast.error(res.error.message);
+    }
+    const saved = res.data as Customer;
+    // pendências do sistema antigo: viram "ajuste (débito)" com a data original
+    let failed = 0;
+    for (const d of isNew ? filledDebts : []) {
+      const { error } = await supabase.rpc("shop_customer_adjust", {
+        p_customer_id: saved.id,
+        p_kind: "ajuste_debito",
+        p_amount: parseDecimal(d.amount),
+        p_notes: d.description.trim() || "Saldo anterior (sistema antigo)",
+        p_date: d.date,
+      });
+      if (error) {
+        failed++;
+        toast.error(`Pendência não lançada: ${error.message}`);
+      }
+    }
+    setBusy(false);
+    if (failed) toast.warning("Cliente salvo, mas confira as pendências no extrato (Ajuste / saldo anterior).");
+    else toast.success(filledDebts.length && isNew ? `Cliente salvo com ${fmtBRL(debtsTotal)} em aberto` : "Cliente salvo");
+    onSaved(saved);
     onClose();
   };
 
@@ -95,9 +141,35 @@ export function CustomerDialog({
             <Switch checked={active} onCheckedChange={setActive} id="cust-active" />
             <Label htmlFor="cust-active">Ativo</Label>
           </div>
+          {isNew && isAdmin && (
+            <div className="space-y-2 rounded-md border p-3 md:col-span-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Pendências do sistema antigo</Label>
+                  <p className="text-xs text-muted-foreground">Entram no extrato com a data original e aparecem em Pendências.</p>
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => setDebts((ds) => [...ds, emptyDebt()])}>
+                  <Plus className="mr-1 h-4 w-4" /> Pendência
+                </Button>
+              </div>
+              {debts.map((d, i) => (
+                <div key={i} className="grid grid-cols-[8.5rem_1fr_6rem_auto] items-center gap-2">
+                  <Input type="date" value={d.date} max={isoDay(new Date())} onChange={(e) => setDebt(i, "date", e.target.value)} />
+                  <Input placeholder="Ex.: corda + encordoamento" value={d.description} onChange={(e) => setDebt(i, "description", e.target.value)} />
+                  <Input placeholder="R$" inputMode="decimal" className="text-right" value={d.amount} onChange={(e) => setDebt(i, "amount", e.target.value)} />
+                  <Button type="button" size="icon" variant="ghost" onClick={() => setDebts((ds) => ds.filter((_, j) => j !== i))}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              {debtsTotal > 0 && <p className="text-right text-sm">Total em aberto: <b className="text-destructive">{fmtBRL(debtsTotal)}</b></p>}
+            </div>
+          )}
         </div>
         <DialogFooter>
-          <Button onClick={save}>Salvar</Button>
+          <Button onClick={save} disabled={busy}>
+            {busy ? "Salvando…" : "Salvar"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -123,10 +195,12 @@ export function AccountEntryDialog({
   const [method, setMethod] = useState("pix");
   const [kind, setKind] = useState<"ajuste_debito" | "ajuste_credito">("ajuste_debito");
   const [notes, setNotes] = useState("");
+  const [date, setDate] = useState(isoDay(new Date()));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!mode) return;
+    setDate(isoDay(new Date()));
     setAmount(mode === "pagamento" && balance > 0 ? String(balance).replace(".", ",") : "");
     setNotes("");
     setKind("ajuste_debito");
@@ -141,7 +215,7 @@ export function AccountEntryDialog({
     const { error } =
       mode === "pagamento"
         ? await supabase.rpc("shop_customer_payment", { p_customer_id: customer.id, p_amount: v, p_method: method, p_notes: notes || null })
-        : await supabase.rpc("shop_customer_adjust", { p_customer_id: customer.id, p_kind: kind, p_amount: v, p_notes: notes });
+        : await supabase.rpc("shop_customer_adjust", { p_customer_id: customer.id, p_kind: kind, p_amount: v, p_notes: notes, p_date: date });
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success(mode === "pagamento" ? `Pagamento de ${fmtBRL(v)} registrado no caixa` : "Ajuste lançado");
@@ -192,6 +266,13 @@ export function AccountEntryDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">Entra no caixa aberto agora e aparece no fechamento.</p>
+            </div>
+          )}
+          {mode === "ajuste" && (
+            <div className="space-y-1">
+              <Label>Data</Label>
+              <Input type="date" value={date} max={isoDay(new Date())} onChange={(e) => setDate(e.target.value)} />
+              <p className="text-xs text-muted-foreground">Para dívida do sistema antigo, use a data da compra original.</p>
             </div>
           )}
           <div className="space-y-1">

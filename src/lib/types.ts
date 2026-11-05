@@ -126,6 +126,7 @@ export interface CashSummary {
   receipts?: Record<string, number>;
   /** vendido na conta do cliente (fiado) neste caixa */
   on_account?: number;
+  secretaria?: number;
 }
 
 export interface StringingOrder {
