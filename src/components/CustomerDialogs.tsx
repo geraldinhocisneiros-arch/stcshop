@@ -40,7 +40,7 @@ export function CustomerDialog({
   useEffect(() => {
     if (!customer) return;
     setActive(customer.active ?? true);
-    setDebts([]);
+    setDebts(customer.id ? [] : [emptyDebt()]); // novo cliente já abre com uma linha de dívida antiga
     setF({
       name: customer.name ?? "",
       phone: customer.phone ?? "",
@@ -99,7 +99,7 @@ export function CustomerDialog({
       }
     }
     setBusy(false);
-    if (failed) toast.warning("Cliente salvo, mas confira as pendências no extrato (Ajuste / saldo anterior).");
+    if (failed) toast.warning("Cliente salvo, mas confira as pendências no extrato (Dívida antiga / ajuste).");
     else toast.success(filledDebts.length && isNew ? `Cliente salvo com ${fmtBRL(debtsTotal)} em aberto` : "Cliente salvo");
     onSaved(saved);
     onClose();
@@ -145,11 +145,11 @@ export function CustomerDialog({
             <div className="space-y-2 rounded-md border p-3 md:col-span-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <Label>Pendências do sistema antigo</Label>
-                  <p className="text-xs text-muted-foreground">Entram no extrato com a data original e aparecem em Pendências.</p>
+                  <Label className="text-base">Dívida antiga (sistema anterior)</Label>
+                  <p className="text-xs text-muted-foreground">Opcional. Preencha data, o que foi e o valor — deixe em branco se o cliente não deve nada.</p>
                 </div>
                 <Button type="button" size="sm" variant="outline" onClick={() => setDebts((ds) => [...ds, emptyDebt()])}>
-                  <Plus className="mr-1 h-4 w-4" /> Pendência
+                  <Plus className="mr-1 h-4 w-4" /> Outra dívida
                 </Button>
               </div>
               {debts.map((d, i) => (
