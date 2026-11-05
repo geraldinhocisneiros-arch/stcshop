@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as CaixaRouteImport } from './routes/caixa'
 import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
 import { Route as CustosRouteImport } from './routes/custos'
+import { Route as DefinirSenhaRouteImport } from './routes/definir-senha'
 import { Route as EncordoamentoRouteImport } from './routes/encordoamento'
 import { Route as EstoqueRouteImport } from './routes/estoque'
 import { Route as FornecedoresRouteImport } from './routes/fornecedores'
@@ -46,6 +47,11 @@ const ConfiguracoesRoute = ConfiguracoesRouteImport.update({
 const CustosRoute = CustosRouteImport.update({
   id: '/custos',
   path: '/custos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DefinirSenhaRoute = DefinirSenhaRouteImport.update({
+  id: '/definir-senha',
+  path: '/definir-senha',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EncordoamentoRoute = EncordoamentoRouteImport.update({
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/caixa': typeof CaixaRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/custos': typeof CustosRoute
+  '/definir-senha': typeof DefinirSenhaRoute
   '/encordoamento': typeof EncordoamentoRoute
   '/estoque': typeof EstoqueRoute
   '/fornecedores': typeof FornecedoresRoute
@@ -144,6 +151,7 @@ export interface FileRoutesByTo {
   '/caixa': typeof CaixaRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/custos': typeof CustosRoute
+  '/definir-senha': typeof DefinirSenhaRoute
   '/encordoamento': typeof EncordoamentoRoute
   '/estoque': typeof EstoqueRoute
   '/fornecedores': typeof FornecedoresRoute
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/caixa': typeof CaixaRoute
   '/configuracoes': typeof ConfiguracoesRoute
   '/custos': typeof CustosRoute
+  '/definir-senha': typeof DefinirSenhaRoute
   '/encordoamento': typeof EncordoamentoRoute
   '/estoque': typeof EstoqueRoute
   '/fornecedores': typeof FornecedoresRoute
@@ -187,6 +196,7 @@ export interface FileRouteTypes {
     | '/caixa'
     | '/configuracoes'
     | '/custos'
+    | '/definir-senha'
     | '/encordoamento'
     | '/estoque'
     | '/fornecedores'
@@ -207,6 +217,7 @@ export interface FileRouteTypes {
     | '/caixa'
     | '/configuracoes'
     | '/custos'
+    | '/definir-senha'
     | '/encordoamento'
     | '/estoque'
     | '/fornecedores'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/caixa'
     | '/configuracoes'
     | '/custos'
+    | '/definir-senha'
     | '/encordoamento'
     | '/estoque'
     | '/fornecedores'
@@ -248,6 +260,7 @@ export interface RootRouteChildren {
   CaixaRoute: typeof CaixaRoute
   ConfiguracoesRoute: typeof ConfiguracoesRoute
   CustosRoute: typeof CustosRoute
+  DefinirSenhaRoute: typeof DefinirSenhaRoute
   EncordoamentoRoute: typeof EncordoamentoRoute
   EstoqueRoute: typeof EstoqueRoute
   FornecedoresRoute: typeof FornecedoresRoute
@@ -292,6 +305,13 @@ declare module '@tanstack/react-router' {
       path: '/custos'
       fullPath: '/custos'
       preLoaderRoute: typeof CustosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/definir-senha': {
+      id: '/definir-senha'
+      path: '/definir-senha'
+      fullPath: '/definir-senha'
+      preLoaderRoute: typeof DefinirSenhaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/encordoamento': {
@@ -400,6 +420,7 @@ const rootRouteChildren: RootRouteChildren = {
   CaixaRoute: CaixaRoute,
   ConfiguracoesRoute: ConfiguracoesRoute,
   CustosRoute: CustosRoute,
+  DefinirSenhaRoute: DefinirSenhaRoute,
   EncordoamentoRoute: EncordoamentoRoute,
   EstoqueRoute: EstoqueRoute,
   FornecedoresRoute: FornecedoresRoute,

@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { errMsg, loadMethods, loadSettings } from "@/lib/data";
 import { parseDecimal } from "@/lib/format";
-import { createShopUser, removeShopUser } from "@/lib/users.functions";
+import { createShopUser, removeShopUser, shopUserPasswordLink } from "@/lib/users.functions";
 import type { PaymentMethod, ShopSettings } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -44,6 +44,8 @@ function ConfigPage() {
   const { user } = useAuth();
   const createUser = useServerFn(createShopUser);
   const removeUser = useServerFn(removeShopUser);
+  const passwordLink = useServerFn(shopUserPasswordLink);
+  const [invite, setInvite] = useState<{ name: string; link: string } | null>(null);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [allowNegative, setAllowNegative] = useState(false);
   const [pixKey, setPixKey] = useState("");
@@ -166,6 +168,23 @@ function ConfigPage() {
                     <div>
                       {u.full_name} <span className="text-xs text-muted-foreground">· {u.role === "admin" ? "Administrador" : "Vendedor"}</span>
                     </div>
+                    <div className="flex gap-1">
+                    {u.user_id !== user?.id && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          try {
+                            const r = await passwordLink({ data: { userId: u.user_id, origin: window.location.origin } });
+                            setInvite({ name: u.full_name, link: r.link });
+                          } catch (e) {
+                            toast.error(errMsg(e));
+                          }
+                        }}
+                      >
+                        Link de senha
+                      </Button>
+                    )}
                     {u.user_id !== user?.id && (
                       <Button
                         size="sm"
@@ -184,13 +203,14 @@ function ConfigPage() {
                         Remover
                       </Button>
                     )}
+                    </div>
                   </div>
                 ))}
               </div>
               <div className="grid gap-2 md:grid-cols-2">
                 <Input placeholder="Nome" value={nu.fullName} onChange={(e) => setNu({ ...nu, fullName: e.target.value })} />
                 <Input placeholder="E-mail" type="email" value={nu.email} onChange={(e) => setNu({ ...nu, email: e.target.value })} />
-                <Input placeholder="Senha (mín. 6)" type="password" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} />
+                <Input placeholder="Senha (deixe em branco para mandar um link)" type="password" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} />
                 <Select value={nu.role} onValueChange={(v) => setNu({ ...nu, role: v as "admin" | "vendedor" })}>
                   <SelectTrigger>
                     <SelectValue />
@@ -204,8 +224,9 @@ function ConfigPage() {
               <Button
                 onClick={async () => {
                   try {
-                    const r = await createUser({ data: nu });
+                    const r = await createUser({ data: { ...nu, origin: window.location.origin } });
                     toast.success(r.existed ? "E-mail já existia: acesso à loja liberado" : "Usuário criado");
+                    if (r.link) setInvite({ name: nu.fullName, link: r.link });
                     setNu({ fullName: "", email: "", password: "", role: "vendedor" });
                     load();
                   } catch (e) {
@@ -215,9 +236,43 @@ function ConfigPage() {
               >
                 Adicionar usuário
               </Button>
+              {invite && (
+                <div className="space-y-2 rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
+                  <div className="font-medium">Link para {invite.name} criar a senha</div>
+                  <Input readOnly value={invite.link} onFocus={(e) => e.currentTarget.select()} />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(invite.link);
+                        toast.success("Link copiado");
+                      }}
+                    >
+                      Copiar link
+                    </Button>
+                    <Button size="sm" variant="outline" asChild>
+                      <a
+                        target="_blank"
+                        rel="noreferrer"
+                        href={`https://wa.me/?text=${encodeURIComponent(
+                          `Olá, ${invite.name}! Seu acesso ao sistema da Squash Tennis Shop está pronto. Abra o link para criar sua senha (vale por 1 hora e só funciona uma vez):\n${invite.link}`,
+                        )}`}
+                      >
+                        Enviar no WhatsApp
+                      </a>
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setInvite(null)}>
+                      Fechar
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Uso único e expira em cerca de 1 hora. Se expirar, clique em “Link de senha” ao lado do nome para gerar outro.
+                  </p>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
-                Se o e-mail já tiver login (ex.: no sistema da academia, quando o Supabase é o mesmo), ele só ganha acesso à loja e
-                continua com a mesma senha.
+                Sem senha, o sistema gera um link para a própria pessoa criar a dela. Se o e-mail já tiver login (ex.: no sistema da academia, quando o Supabase é o mesmo), ele só ganha acesso à loja e
+                continua com a mesma senha (nesse caso não sai link).
               </p>
             </CardContent>
           </Card>
