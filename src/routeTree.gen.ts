@@ -22,6 +22,7 @@ import { Route as NotasRouteImport } from './routes/notas'
 import { Route as PendenciasRouteImport } from './routes/pendencias'
 import { Route as ProdutosRouteImport } from './routes/produtos'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
+import { Route as UsuariosRouteImport } from './routes/usuarios'
 import { Route as VendasRouteImport } from './routes/vendas'
 import { Route as ClientesIndexRouteImport } from './routes/clientes.index'
 import { Route as ClientesIdRouteImport } from './routes/clientes.$id'
@@ -93,6 +94,11 @@ const RelatoriosRoute = RelatoriosRouteImport.update({
   path: '/relatorios',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UsuariosRoute = UsuariosRouteImport.update({
+  id: '/usuarios',
+  path: '/usuarios',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VendasRoute = VendasRouteImport.update({
   id: '/vendas',
   path: '/vendas',
@@ -133,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/pendencias': typeof PendenciasRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
+  '/usuarios': typeof UsuariosRoute
   '/vendas': typeof VendasRoute
   '/clientes/$id': typeof ClientesIdRoute
   '/fechamentos/$id': typeof FechamentosIdRoute
@@ -153,6 +160,7 @@ export interface FileRoutesByTo {
   '/pendencias': typeof PendenciasRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
+  '/usuarios': typeof UsuariosRoute
   '/vendas': typeof VendasRoute
   '/clientes/$id': typeof ClientesIdRoute
   '/fechamentos/$id': typeof FechamentosIdRoute
@@ -174,6 +182,7 @@ export interface FileRoutesById {
   '/pendencias': typeof PendenciasRoute
   '/produtos': typeof ProdutosRoute
   '/relatorios': typeof RelatoriosRoute
+  '/usuarios': typeof UsuariosRoute
   '/vendas': typeof VendasRoute
   '/clientes/$id': typeof ClientesIdRoute
   '/fechamentos/$id': typeof FechamentosIdRoute
@@ -196,6 +205,7 @@ export interface FileRouteTypes {
     | '/pendencias'
     | '/produtos'
     | '/relatorios'
+    | '/usuarios'
     | '/vendas'
     | '/clientes/$id'
     | '/fechamentos/$id'
@@ -216,6 +226,7 @@ export interface FileRouteTypes {
     | '/pendencias'
     | '/produtos'
     | '/relatorios'
+    | '/usuarios'
     | '/vendas'
     | '/clientes/$id'
     | '/fechamentos/$id'
@@ -236,6 +247,7 @@ export interface FileRouteTypes {
     | '/pendencias'
     | '/produtos'
     | '/relatorios'
+    | '/usuarios'
     | '/vendas'
     | '/clientes/$id'
     | '/fechamentos/$id'
@@ -257,6 +269,7 @@ export interface RootRouteChildren {
   PendenciasRoute: typeof PendenciasRoute
   ProdutosRoute: typeof ProdutosRoute
   RelatoriosRoute: typeof RelatoriosRoute
+  UsuariosRoute: typeof UsuariosRoute
   VendasRoute: typeof VendasRoute
   ClientesIdRoute: typeof ClientesIdRoute
   FechamentosIdRoute: typeof FechamentosIdRoute
@@ -357,6 +370,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RelatoriosRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/usuarios': {
+      id: '/usuarios'
+      path: '/usuarios'
+      fullPath: '/usuarios'
+      preLoaderRoute: typeof UsuariosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/vendas': {
       id: '/vendas'
       path: '/vendas'
@@ -409,6 +429,7 @@ const rootRouteChildren: RootRouteChildren = {
   PendenciasRoute: PendenciasRoute,
   ProdutosRoute: ProdutosRoute,
   RelatoriosRoute: RelatoriosRoute,
+  UsuariosRoute: UsuariosRoute,
   VendasRoute: VendasRoute,
   ClientesIdRoute: ClientesIdRoute,
   FechamentosIdRoute: FechamentosIdRoute,
