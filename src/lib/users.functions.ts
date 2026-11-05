@@ -62,3 +62,82 @@ export const removeShopUser = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+export interface ShopUserInfo {
+  user_id: string;
+  full_name: string;
+  role: "admin" | "vendedor";
+  email: string | null;
+  last_sign_in_at: string | null;
+  created_at: string | null;
+  email_confirmed: boolean;
+}
+
+/** Lista quem tem acesso à loja, com e-mail e último acesso (vem do Auth, por isso roda no servidor). */
+export const listShopUsers = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<ShopUserInfo[]> => {
+    await assertAdmin(context.supabase);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: roles, error } = await supabaseAdmin.from("shop_user_roles").select("user_id, full_name, role").order("full_name");
+    if (error) throw new Error(error.message);
+    return Promise.all(
+      (roles ?? []).map(async (r: { user_id: string; full_name: string; role: "admin" | "vendedor" }) => {
+        const { data } = await supabaseAdmin.auth.admin.getUserById(r.user_id);
+        const u = data?.user;
+        return {
+          ...r,
+          email: u?.email ?? null,
+          last_sign_in_at: u?.last_sign_in_at ?? null,
+          created_at: u?.created_at ?? null,
+          email_confirmed: !!u?.email_confirmed_at,
+        };
+      }),
+    );
+  });
+
+async function assertShopUser(supabaseAdmin: any, userId: string) {
+  const { data } = await supabaseAdmin.from("shop_user_roles").select("user_id").eq("user_id", userId).maybeSingle();
+  if (!data) throw new Error("Este usuário não tem acesso à loja");
+}
+
+/** Define uma senha nova para um usuário da loja (o admin troca sem precisar da senha antiga). */
+export const setShopUserPassword = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { userId: string; password: string }) => {
+    if (!input?.userId) throw new Error("userId obrigatório");
+    if (!input.password || input.password.length < 6) throw new Error("A senha precisa ter pelo menos 6 caracteres");
+    if (input.password !== input.password.trim()) throw new Error("A senha não pode começar nem terminar com espaço");
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await assertShopUser(supabaseAdmin, data.userId);
+    // confirma o e-mail junto: e-mail não confirmado também bloqueia o login
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(data.userId, { password: data.password, email_confirm: true });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Muda nome e papel (admin / vendedor) de um usuário da loja. */
+export const updateShopUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { userId: string; fullName: string; role: "admin" | "vendedor" }) => {
+    if (!input?.userId) throw new Error("userId obrigatório");
+    if (!input.fullName?.trim()) throw new Error("Informe o nome");
+    if (input.role !== "admin" && input.role !== "vendedor") throw new Error("Papel inválido");
+    return { ...input, fullName: input.fullName.trim() };
+  })
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.supabase);
+    if (data.userId === context.userId && data.role !== "admin") throw new Error("Você não pode tirar o seu próprio acesso de administrador");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await assertShopUser(supabaseAdmin, data.userId);
+    const { error } = await supabaseAdmin
+      .from("shop_user_roles")
+      .update({ full_name: data.fullName, role: data.role })
+      .eq("user_id", data.userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
