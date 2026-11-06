@@ -77,6 +77,7 @@ begin
 end $$;
 
 -- Fechamento: recebimentos de clientes já descontam os estornos
+-- (mesma função da migration da Secretaria, só muda o cálculo dos recebimentos)
 create or replace function public.shop_cash_summary(p_session_id uuid)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 declare
@@ -85,7 +86,7 @@ declare
   v_sales jsonb;
   v_sangria numeric; v_suprimento numeric;
   v_expected jsonb;
-  v_receipts jsonb; v_on_account numeric;
+  v_receipts jsonb; v_on_account numeric; v_secretaria numeric;
 begin
   if not public.shop_is_member() then raise exception 'Sem permissão'; end if;
   select * into v_s from shop_cash_sessions where id = p_session_id;
@@ -124,7 +125,12 @@ begin
         group by method
         having sum(case when kind = 'pagamento' then amount else -amount end) <> 0) r;
   v_on_account := coalesce((v_by_method -> 'conta' ->> 'amount')::numeric, 0);
+  -- secretaria: vendas + recebimentos acertados na secretaria da academia
+  v_secretaria := coalesce((v_by_method -> 'secretaria' ->> 'amount')::numeric, 0)
+                + coalesce((v_receipts ->> 'secretaria')::numeric, 0);
 
+  -- esperado por forma: vendas + recebimentos de clientes; dinheiro inclui troco
+  -- inicial, suprimentos e sangrias. "Conta do cliente" não é dinheiro: fica de fora.
   select coalesce(jsonb_object_agg(code, val), '{}'::jsonb) into v_expected
   from (
     select m.code,
@@ -132,7 +138,7 @@ begin
         + coalesce((v_receipts ->> m.code)::numeric, 0)
         + case when m.code = 'dinheiro' then v_s.opening_amount + v_suprimento - v_sangria else 0 end as val
     from shop_payment_methods m
-    where (m.active or v_by_method ? m.code or v_receipts ? m.code) and m.code <> 'conta'
+    where (m.active or v_by_method ? m.code or v_receipts ? m.code) and m.code not in ('conta', 'secretaria')
   ) e;
 
   return jsonb_build_object(
@@ -143,6 +149,7 @@ begin
     'suprimento', v_suprimento,
     'expected', v_expected,
     'receipts', v_receipts,
-    'on_account', v_on_account
+    'on_account', v_on_account,
+    'secretaria', v_secretaria
   );
 end $$;

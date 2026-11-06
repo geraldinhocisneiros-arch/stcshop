@@ -10,13 +10,13 @@ com shadcn/ui e Tailwind.
 
 | Tela | Quem | O que faz |
 |---|---|---|
-| Caixa (PDV) | todos | Abre o caixa, vende (busca por apelido, nome da nota, código ou leitor de código de barras), pagamento misto, troco, sangria/suprimento e fechamento. **A baixa no estoque é automática.** |
+| Caixa (PDV) | todos | Abre o caixa, vende (busca por apelido, nome da nota, código ou leitor de código de barras), pagamento misto, troco, sangria/suprimento e fechamento. Qualquer usuário pode mudar o preço do item só naquela venda. **A baixa no estoque é automática.** |
 | Vendas | todos | Histórico e cancelamento (devolve ao estoque; vendedor só cancela no caixa aberto). |
 | Encordoamento | todos | Fila de ordens (raquete, corda, tensão, prazo), aviso por WhatsApp e cobrança no caixa. |
-| Produtos | todos (edição: admin) | Cadastro com **apelido** + **nome da nota fiscal**, preço, promoção, e análise de margem ao vivo. |
+| Produtos | todos (vendedor cadastra e muda o preço de venda; custo e promoção: admin) | Cadastro com **apelido** + **nome da nota fiscal**, preço, promoção, e análise de margem ao vivo. Toda mudança de preço de venda fica registrada (quem, de, para, quando). |
 | Estoque | todos (ajuste: admin) | Saldo, valor parado, movimentações, inventário/perda/entrada manual. |
 | Notas fiscais | admin | Importa **XML** (exato) ou **PDF/DANFE** (lido pelo Claude). Casa os itens com o cadastro, rateia frete/IPI/ST/desconto, dá entrada e recalcula o custo médio. |
-| Fechamentos | todos | Relatório de cada caixa para prestar contas ao dono (imprimir/PDF). |
+| Fechamentos | todos | Relatório de cada caixa para prestar contas ao dono (imprimir/PDF), com os itens vendidos abaixo do preço de tabela (quem vendeu, quanto deixou de entrar) e os preços alterados no cadastro durante o caixa. |
 | Relatórios | admin | Mês: faturamento, ticket, lucro bruto, mais/menos vendidos, por categoria e forma de pagamento. Exporta Excel. |
 | Inteligência | admin | Curva ABC (faturamento ou lucro), o que comprar, promoções sugeridas com preço e piso, preços abaixo da meta. |
 | Custos e preços | admin | Custos fixos e percentuais, ponto de equilíbrio, simulador de preço, resultado estimado por mês. |
@@ -85,5 +85,6 @@ psql -d shop_test -v ON_ERROR_STOP=1 -f supabase/tests/00_stub_auth.sql -f supab
 psql -d shop_test -f supabase/tests/10_fluxo_admin.sql
 psql -d shop_test -f supabase/tests/20_permissoes_vendedor.sql
 psql -d shop_test -f supabase/tests/40_clientes_fiado.sql
-psql -d shop_test -f supabase/tests/50_pagamento_parcial.sql
+psql -d shop_test -f supabase/tests/50_secretaria_saldo_anterior.sql
+psql -d shop_test -f supabase/tests/60_pagamento_parcial.sql
 ```

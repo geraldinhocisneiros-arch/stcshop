@@ -73,6 +73,8 @@ export interface SaleLine {
   unit_cost: number;
   cost_total: number;
   fee_share: number;
+  list_price: number | null; // preço de tabela no momento da venda (vazio em vendas antigas)
+  sold_by: string | null;
 }
 
 export interface Sale {
@@ -126,6 +128,7 @@ export interface CashSummary {
   receipts?: Record<string, number>;
   /** vendido na conta do cliente (fiado) neste caixa */
   on_account?: number;
+  secretaria?: number;
 }
 
 export interface StringingOrder {
