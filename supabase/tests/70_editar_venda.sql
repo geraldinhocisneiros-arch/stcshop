@@ -1,4 +1,4 @@
--- Rode depois de todas as migrations e dos testes 10/20/30/40
+-- Rode depois de todas as migrations e dos testes 10 a 60
 \set ON_ERROR_STOP 1
 select set_config('test.uid','11111111-1111-1111-1111-111111111111',false);
 update shop_cash_sessions set status='fechado', closed_at=now() where status='aberto';
@@ -29,11 +29,11 @@ select shop_edit_sale(:'venda',
 select coalesce(sum(case when kind='debito' then amount else -amount end),0) as fiado_da_venda
 from shop_customer_entries where sale_id = :'venda';  -- 30
 
--- vendedor: não pode mudar preço nem passar desconto
+-- vendedor: não passa do desconto máximo
 select set_config('test.uid','22222222-2222-2222-2222-222222222222',false);
 do $$ begin perform shop_edit_sale((select id from shop_sales where edit_count = 2 limit 1),
-  '[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":1,"unit_price":10}]','[{"method":"pix","amount":10}]', 0, null, null, 'x');
-  raise exception 'devia falhar'; exception when others then raise notice 'vendedor preço: %', sqlerrm; end $$;
+  '[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":1,"unit_price":39.9}]','[{"method":"pix","amount":19.9}]', 20, null, null, 'x');
+  raise exception 'devia falhar'; exception when others then raise notice 'vendedor desconto: %', sqlerrm; end $$;
 -- sem motivo: bloqueia
 do $$ begin perform shop_edit_sale((select id from shop_sales where edit_count = 2 limit 1),
   '[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":1,"unit_price":39.9}]','[{"method":"pix","amount":39.9}]', 0, null, null, ' ');
@@ -43,6 +43,8 @@ select shop_edit_sale(:'venda',
   '[{"product_id":"aaaaaaaa-0000-0000-0000-000000000001","qty":3,"unit_price":39.9}]',
   '[{"method":"pix","amount":119.7}]', 0, null, null, 'devolveu a corda') ->> 'total' as total_vendedor;
 select stock_qty from shop_products where id='aaaaaaaa-0000-0000-0000-000000000002';  -- volta a 20
+-- preço de tabela continua o da venda original
+select list_price from shop_sale_items where sale_id = :'venda';
 select coalesce(sum(case when kind='debito' then amount else -amount end),0) as fiado_zerado
 from shop_customer_entries where sale_id = :'venda';
 -- estoque insuficiente na edição

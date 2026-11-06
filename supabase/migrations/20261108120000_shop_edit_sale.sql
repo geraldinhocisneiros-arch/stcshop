@@ -6,9 +6,10 @@
 -- - Estoque: lança só a DIFERENÇA de cada produto (movimento "edicao_venda").
 -- - Conta do cliente (fiado): lança a diferença (débito ou estorno); se trocou
 --   de cliente, estorna tudo do antigo e debita o novo.
--- - Mesmas regras da venda: vendedor só edita no caixa aberto, não muda preço
---   (pode manter o preço original de quem já estava na venda), respeita o
---   desconto máximo e o limite de crédito do cliente.
+-- - Mesmas regras da venda: vendedor só edita no caixa aberto, respeita o
+--   desconto máximo e o limite de crédito do cliente. Preço do item pode ser
+--   mudado (como no caixa) e o preço de tabela fica gravado para o fechamento
+--   mostrar o que saiu abaixo da tabela.
 -- - Motivo obrigatório. Cada edição guarda o "antes" e o "depois" (auditoria).
 -- =====================================================================
 
@@ -64,12 +65,12 @@ declare
   v_is_admin boolean := public.shop_is_admin();
   v_order shop_stringing_orders;
   v_before jsonb; v_after jsonb;
-  v_old_items jsonb;          -- {product_id: {qty, unit_price, unit_cost}}
+  v_old_items jsonb;          -- {product_id: {qty, unit_price, unit_cost, list_price}}
   v_subtotal numeric := 0; v_discount numeric := round(coalesce(p_discount, 0), 2);
   v_total numeric; v_paid numeric := 0; v_fee_total numeric := 0; v_cost_total numeric := 0;
   v_item jsonb; v_pay jsonb; v_prod shop_products; v_old jsonb;
   v_qty numeric; v_price numeric; v_cost numeric; v_line numeric; v_line_disc numeric; v_disc_left numeric;
-  v_fee_pct numeric; v_count int; v_i int := 0; v_expected numeric;
+  v_fee_pct numeric; v_count int; v_i int := 0; v_list numeric;
   v_customer shop_customers; v_on_account numeric := 0; v_old_on_customer numeric := 0; v_balance numeric;
   v_diff record; v_new numeric; v_acc record; v_note text;
 begin
@@ -89,9 +90,9 @@ begin
   select * into v_order from shop_stringing_orders where sale_id = p_sale_id limit 1;
 
   v_before := public.shop__sale_snapshot(p_sale_id);
-  select coalesce(jsonb_object_agg(product_id, jsonb_build_object('qty', qty, 'unit_price', unit_price, 'unit_cost', unit_cost)), '{}'::jsonb)
+  select coalesce(jsonb_object_agg(product_id, jsonb_build_object('qty', qty, 'unit_price', unit_price, 'unit_cost', unit_cost, 'list_price', list_price)), '{}'::jsonb)
     into v_old_items
-  from (select product_id, sum(qty) qty, max(unit_price) unit_price, max(unit_cost) unit_cost
+  from (select product_id, sum(qty) qty, max(unit_price) unit_price, max(unit_cost) unit_cost, max(list_price) list_price
         from shop_sale_items where sale_id = p_sale_id group by product_id) o;
 
   -- totais e desconto
@@ -143,17 +144,8 @@ begin
     select * into v_prod from shop_products where id = (v_item->>'product_id')::uuid;
     if v_prod.id is null then raise exception 'Produto não encontrado'; end if;
     if (v_item->>'qty')::numeric <= 0 then raise exception 'Quantidade inválida para %', v_prod.name; end if;
-    if not v_is_admin then
-      v_price := (v_item->>'unit_price')::numeric;
-      v_old := v_old_items -> v_prod.id::text;
-      v_expected := case
-        when v_order.id is not null and v_prod.id = v_order.service_product_id and v_order.price is not null then v_order.price
-        when v_prod.promo_price is not null and v_prod.promo_until >= (now() at time zone 'America/Recife')::date then v_prod.promo_price
-        else v_prod.sale_price end;
-      -- pode manter o preço com que o item já estava na venda (ex.: promoção que acabou)
-      if abs(v_price - v_expected) > 0.009 and (v_old is null or abs(v_price - (v_old->>'unit_price')::numeric) > 0.009) then
-        raise exception 'Preço de "%" diferente do cadastrado. Só o administrador altera preço.', v_prod.name;
-      end if;
+    if (v_item->>'unit_price') is null or (v_item->>'unit_price')::numeric < 0 then
+      raise exception 'Preço inválido para %', v_prod.name;
     end if;
   end loop;
 
@@ -192,13 +184,19 @@ begin
     v_price := (v_item->>'unit_price')::numeric;
     -- item que já estava na venda mantém o custo da época; item novo usa o custo atual
     v_cost := coalesce((v_old_items -> v_prod.id::text ->> 'unit_cost')::numeric, v_prod.cost_price);
+    -- preço de tabela: o da época para item que já estava; o atual para item novo
+    v_list := case
+      when v_old_items ? v_prod.id::text then (v_old_items -> v_prod.id::text ->> 'list_price')::numeric
+      when v_order.id is not null and v_prod.id = v_order.service_product_id and v_order.price is not null then v_order.price
+      when v_prod.promo_price is not null and v_prod.promo_until >= (now() at time zone 'America/Recife')::date then v_prod.promo_price
+      else v_prod.sale_price end;
     v_line := round(v_qty * v_price, 2);
     if v_i = v_count then v_line_disc := v_disc_left;
     elsif v_subtotal > 0 then v_line_disc := round(v_discount * v_line / v_subtotal, 2);
     else v_line_disc := 0; end if;
     v_disc_left := v_disc_left - v_line_disc;
-    insert into shop_sale_items (sale_id, product_id, description, qty, unit_price, discount, total, unit_cost)
-    values (p_sale_id, v_prod.id, v_prod.name, v_qty, v_price, v_line_disc, v_line - v_line_disc, v_cost);
+    insert into shop_sale_items (sale_id, product_id, description, qty, unit_price, discount, total, unit_cost, list_price)
+    values (p_sale_id, v_prod.id, v_prod.name, v_qty, v_price, v_line_disc, v_line - v_line_disc, v_cost, v_list);
     v_cost_total := v_cost_total + round(v_qty * v_cost, 2);
   end loop;
 

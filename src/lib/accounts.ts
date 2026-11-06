@@ -1,7 +1,10 @@
 import { fmtBRL, fmtDate, round2 } from "./format";
 import type { CustomerEntry } from "./types";
 
-export const DEBIT_KINDS = new Set<CustomerEntry["kind"]>(["debito", "ajuste_debito"]);
+/** Lançamentos que aumentam a dívida (o estorno de pagamento devolve o valor à dívida). */
+export const DEBIT_KINDS = new Set<CustomerEntry["kind"]>(["debito", "ajuste_debito", "estorno_pagamento"]);
+/** Compras/saldos que podem ficar "em aberto" na cobrança. */
+const PURCHASE_KINDS = new Set<CustomerEntry["kind"]>(["debito", "ajuste_debito"]);
 
 export const ENTRY_LABEL: Record<CustomerEntry["kind"], string> = {
   debito: "Compra",
@@ -9,6 +12,7 @@ export const ENTRY_LABEL: Record<CustomerEntry["kind"], string> = {
   estorno: "Estorno de venda",
   ajuste_debito: "Ajuste (débito)",
   ajuste_credito: "Ajuste (crédito)",
+  estorno_pagamento: "Pagamento estornado",
 };
 
 /** Saldo: positivo = o cliente deve à loja. */
@@ -30,7 +34,7 @@ export interface OpenDebt {
 export function openDebts(entries: CustomerEntry[], now = new Date()): OpenDebt[] {
   const sorted = [...entries].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const debts = sorted
-    .filter((e) => DEBIT_KINDS.has(e.kind))
+    .filter((e) => PURCHASE_KINDS.has(e.kind))
     .map((e) => ({ entry: e, remaining: Number(e.amount) }));
 
   // estorno (venda cancelada ou editada para menos) vai direto na própria venda;
@@ -46,7 +50,12 @@ export function openDebts(entries: CustomerEntry[], now = new Date()): OpenDebt[
     }
     applyFifo(debts, left); // sobra (venda já paga): vira crédito para as mais antigas
   }
-  const credit = sorted.filter((e) => e.kind === "pagamento" || e.kind === "ajuste_credito").reduce((s, e) => s + Number(e.amount), 0);
+  // pagamento estornado não conta: desconta do total pago
+  const credit = sorted.reduce(
+    (s, e) =>
+      s + (e.kind === "pagamento" || e.kind === "ajuste_credito" ? Number(e.amount) : e.kind === "estorno_pagamento" ? -Number(e.amount) : 0),
+    0,
+  );
   applyFifo(debts, credit);
 
   return debts
@@ -88,6 +97,33 @@ export function chargeMessage(opts: {
     opts.pixKey ? `Você pode pagar por PIX (chave: ${opts.pixKey}) ou direto na loja.` : "Você pode pagar direto na loja.",
     "Se já pagou, por favor desconsidere. Obrigado!",
   ].join("\n");
+}
+
+/** Comprovante de pagamento parcial/total para mandar ao cliente. */
+export function receiptMessage(opts: {
+  customerName: string;
+  amount: number;
+  methodLabel: string;
+  date: string;
+  remaining: number;
+  pixKey?: string | null;
+}) {
+  const first = opts.customerName.trim().split(/\s+/)[0] ?? "";
+  return [
+    `Olá, ${first}! Aqui é da Squash Tennis Shop.`,
+    "",
+    `Recebemos seu pagamento de *${fmtBRL(opts.amount)}* (${opts.methodLabel}) em ${fmtDate(opts.date)}. Obrigado!`,
+    "",
+    opts.remaining > 0.004
+      ? `Saldo restante na sua conta: *${fmtBRL(opts.remaining)}*.`
+      : "Sua conta está *quitada*. Nada em aberto.",
+    ...(opts.remaining > 0.004 && opts.pixKey ? [`Quando quiser abater mais, pode ser por PIX (chave: ${opts.pixKey}) ou direto na loja.`] : []),
+  ].join("\n");
+}
+
+/** Pagamentos que já foram estornados (ids). */
+export function reversedPaymentIds(entries: CustomerEntry[]) {
+  return new Set(entries.filter((e) => e.kind === "estorno_pagamento" && e.reverses_id).map((e) => e.reverses_id as string));
 }
 
 export function whatsappLink(phone: string | null | undefined, text: string) {

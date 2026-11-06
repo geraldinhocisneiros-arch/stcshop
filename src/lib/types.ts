@@ -73,6 +73,8 @@ export interface SaleLine {
   unit_cost: number;
   cost_total: number;
   fee_share: number;
+  list_price: number | null; // preço de tabela no momento da venda (vazio em vendas antigas)
+  sold_by: string | null;
 }
 
 export interface Sale {
@@ -149,6 +151,7 @@ export interface CashSummary {
   receipts?: Record<string, number>;
   /** vendido na conta do cliente (fiado) neste caixa */
   on_account?: number;
+  secretaria?: number;
 }
 
 export interface StringingOrder {
@@ -215,11 +218,13 @@ export interface Customer {
 export interface CustomerEntry {
   id: string;
   customer_id: string;
-  kind: "debito" | "pagamento" | "estorno" | "ajuste_debito" | "ajuste_credito";
+  kind: "debito" | "pagamento" | "estorno" | "ajuste_debito" | "ajuste_credito" | "estorno_pagamento";
   amount: number;
   sale_id: string | null;
   session_id: string | null;
   method: string | null;
   notes: string | null;
+  /** num estorno de pagamento: o pagamento que ele desfaz */
+  reverses_id?: string | null;
   created_at: string;
 }

@@ -18,6 +18,7 @@ import {
   Truck,
   Users,
   AlertCircle,
+  UserCog,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
@@ -51,6 +52,7 @@ const NAV: NavItem[] = [
   { to: "/relatorios", label: "Relatórios", icon: BarChart3, adminOnly: true },
   { to: "/inteligencia", label: "Inteligência", icon: Lightbulb, adminOnly: true },
   { to: "/custos", label: "Custos e preços", icon: Calculator, adminOnly: true },
+  { to: "/usuarios", label: "Usuários", icon: UserCog, adminOnly: true },
   { to: "/configuracoes", label: "Configurações", icon: Settings, adminOnly: true },
 ];
 

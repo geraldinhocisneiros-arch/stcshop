@@ -33,6 +33,7 @@ interface Movement {
   notes: string | null;
   sale_id: string | null;
   invoice_id: string | null;
+  created_by: string | null;
   created_at: string;
 }
 
@@ -51,18 +52,21 @@ function EstoquePage() {
   const { isAdmin } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [moves, setMoves] = useState<Movement[]>([]);
+  const [users, setUsers] = useState<Map<string, string>>(new Map());
   const [search, setSearch] = useState("");
   const [onlyLow, setOnlyLow] = useState(false);
   const [adjusting, setAdjusting] = useState<{ product: Product; kind: AdjustKind } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [p, m] = await Promise.all([
+      const [p, m, u] = await Promise.all([
         loadProducts(),
         supabase.from("shop_stock_movements").select("*").order("created_at", { ascending: false }).limit(300),
+        supabase.from("shop_user_roles").select("user_id, full_name"),
       ]);
       setProducts(p.filter((x) => x.kind === "produto"));
       setMoves((m.data ?? []) as Movement[]);
+      setUsers(new Map((u.data ?? []).map((x) => [x.user_id as string, x.full_name as string])));
     } catch (e) {
       toast.error(errMsg(e));
     }
@@ -113,7 +117,7 @@ function EstoquePage() {
                     <TableHead className="text-right">Mínimo</TableHead>
                     {isAdmin && <TableHead className="text-right">Custo médio</TableHead>}
                     {isAdmin && <TableHead className="text-right">Valor</TableHead>}
-                    {isAdmin && <TableHead />}
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -133,22 +137,37 @@ function EstoquePage() {
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{fmtNum(p.min_stock, 2)}</TableCell>
                       {isAdmin && <TableCell className="text-right tabular-nums">{fmtBRL(p.cost_price)}</TableCell>}
-                      {isAdmin && <TableCell className="text-right tabular-nums">{fmtBRL(Math.max(0, p.stock_qty) * p.cost_price)}</TableCell>}
                       {isAdmin && (
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button size="sm" variant="outline" title="Entrada manual" onClick={() => setAdjusting({ product: p, kind: "entrada_manual" })}>
-                              <Plus className="h-4 w-4" /> Entrada
-                            </Button>
-                            <Button size="sm" variant="outline" title="Saída manual" onClick={() => setAdjusting({ product: p, kind: "perda" })}>
-                              <Minus className="h-4 w-4" /> Saída
-                            </Button>
-                            <Button size="sm" variant="outline" title="Informar a quantidade contada" onClick={() => setAdjusting({ product: p, kind: "ajuste" })}>
-                              <ClipboardCheck className="h-4 w-4" /> Contagem
-                            </Button>
-                          </div>
-                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtBRL(Math.max(0, p.stock_qty) * p.cost_price)}</TableCell>
                       )}
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Entrada manual"
+                            onClick={() => setAdjusting({ product: p, kind: "entrada_manual" })}
+                          >
+                            <Plus className="h-4 w-4" /> Entrada
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Saída manual"
+                            onClick={() => setAdjusting({ product: p, kind: "perda" })}
+                          >
+                            <Minus className="h-4 w-4" /> Saída
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Informar a quantidade contada"
+                            onClick={() => setAdjusting({ product: p, kind: "ajuste" })}
+                          >
+                            <ClipboardCheck className="h-4 w-4" /> Contagem
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -167,6 +186,7 @@ function EstoquePage() {
                     <TableHead>Tipo</TableHead>
                     <TableHead className="text-right">Qtd</TableHead>
                     <TableHead className="text-right">Saldo</TableHead>
+                    <TableHead>Por</TableHead>
                     <TableHead>Obs.</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -183,6 +203,7 @@ function EstoquePage() {
                         {fmtNum(m.qty, 2)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{fmtNum(m.balance_after, 2)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">{(m.created_by && users.get(m.created_by)) || "—"}</TableCell>
                       <TableCell className="max-w-64 truncate text-xs text-muted-foreground">{m.notes}</TableCell>
                     </TableRow>
                   ))}
@@ -193,7 +214,7 @@ function EstoquePage() {
         </TabsContent>
       </Tabs>
 
-      <AdjustDialog target={adjusting} onClose={() => setAdjusting(null)} onDone={load} />
+      <AdjustDialog target={adjusting} isAdmin={isAdmin} onClose={() => setAdjusting(null)} onDone={load} />
     </AppLayout>
   );
 }
@@ -220,10 +241,12 @@ const ADJUST: Record<AdjustKind, { title: string; qtyLabel: string; reasons: str
 
 function AdjustDialog({
   target,
+  isAdmin,
   onClose,
   onDone,
 }: {
   target: { product: Product; kind: AdjustKind } | null;
+  isAdmin: boolean;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -240,7 +263,8 @@ function AdjustDialog({
   const { product, kind } = target;
   const cfg = ADJUST[kind];
   const n = parseDecimal(qty);
-  const after = qty.trim() === "" ? null : kind === "ajuste" ? n : kind === "perda" ? product.stock_qty - Math.abs(n) : product.stock_qty + Math.abs(n);
+  const after =
+    qty.trim() === "" ? null : kind === "ajuste" ? n : kind === "perda" ? product.stock_qty - Math.abs(n) : product.stock_qty + Math.abs(n);
 
   const save = async () => {
     if (qty.trim() === "") return toast.error("Informe a quantidade");
@@ -251,7 +275,7 @@ function AdjustDialog({
       p_product_id: product.id,
       p_kind: kind,
       p_qty: n,
-      p_unit_cost: kind === "entrada_manual" && cost ? parseDecimal(cost) : null,
+      p_unit_cost: isAdmin && kind === "entrada_manual" && cost ? parseDecimal(cost) : null,
       p_notes: notes.trim(),
     });
     setBusy(false);
@@ -272,7 +296,13 @@ function AdjustDialog({
         <div className="space-y-3">
           <div className="space-y-1">
             <Label>{cfg.qtyLabel}</Label>
-            <Input autoFocus inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+            <Input
+              autoFocus
+              inputMode="decimal"
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && save()}
+            />
           </div>
           <div className="flex justify-between rounded-md bg-muted p-3 text-sm">
             <span>
@@ -282,17 +312,29 @@ function AdjustDialog({
               Fica: <b className={cn(after !== null && after < 0 && "text-destructive")}>{after === null ? "—" : fmtNum(after, 2)}</b>
             </span>
           </div>
-          {kind === "entrada_manual" && (
+          {isAdmin && kind === "entrada_manual" && (
             <div className="space-y-1">
               <Label>Custo unitário (R$) — opcional, entra no custo médio</Label>
-              <Input inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="Deixe vazio se não teve custo (ex.: devolução)" />
+              <Input
+                inputMode="decimal"
+                value={cost}
+                onChange={(e) => setCost(e.target.value)}
+                placeholder="Deixe vazio se não teve custo (ex.: devolução)"
+              />
             </div>
           )}
           <div className="space-y-1">
             <Label>Motivo *</Label>
             <div className="flex flex-wrap gap-1">
               {cfg.reasons.map((r) => (
-                <Button key={r} type="button" size="sm" variant={notes === r ? "default" : "outline"} className="h-7 text-xs" onClick={() => setNotes(r)}>
+                <Button
+                  key={r}
+                  type="button"
+                  size="sm"
+                  variant={notes === r ? "default" : "outline"}
+                  className="h-7 text-xs"
+                  onClick={() => setNotes(r)}
+                >
                   {r}
                 </Button>
               ))}

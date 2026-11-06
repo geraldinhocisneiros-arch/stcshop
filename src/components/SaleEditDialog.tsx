@@ -22,7 +22,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { errMsg, loadCustomers, loadProducts, type CustomerWithBalance } from "@/lib/data";
 import { effectivePrice, fmtBRL, fmtNum, parseDecimal, round2 } from "@/lib/format";
 import type { PaymentMethod, Product } from "@/lib/types";
-import { useAuth } from "@/hooks/useAuth";
 import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -73,7 +72,6 @@ export function SaleEditDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { isAdmin } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [discountInput, setDiscountInput] = useState("");
@@ -246,22 +244,16 @@ export function SaleEditDialog({
                       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                     />
                     <span className="text-muted-foreground">×</span>
-                    {isAdmin ? (
-                      <Input
-                        key={`p-${l.key}-${l.unit_price}`}
-                        className="h-8 w-24 text-right"
-                        aria-label="Preço unitário"
-                        defaultValue={l.unit_price.toFixed(2).replace(".", ",")}
-                        onBlur={(e) =>
-                          setLine(l.key, { unit_price: round2(parseDecimal(e.target.value)) })
-                        }
-                        onKeyDown={(e) =>
-                          e.key === "Enter" && (e.target as HTMLInputElement).blur()
-                        }
-                      />
-                    ) : (
-                      <span className="w-24 text-right tabular-nums">{fmtBRL(l.unit_price)}</span>
-                    )}
+                    <Input
+                      key={`p-${l.key}-${l.unit_price}`}
+                      className="h-8 w-24 text-right"
+                      aria-label="Preço unitário"
+                      defaultValue={l.unit_price.toFixed(2).replace(".", ",")}
+                      onBlur={(e) =>
+                        setLine(l.key, { unit_price: round2(parseDecimal(e.target.value)) })
+                      }
+                      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                    />
                     <span className="w-24 text-right font-semibold tabular-nums">
                       {fmtBRL(l.qty * l.unit_price)}
                     </span>
