@@ -11,7 +11,7 @@ com shadcn/ui e Tailwind.
 | Tela | Quem | O que faz |
 |---|---|---|
 | Caixa (PDV) | todos | Abre o caixa, vende (busca por apelido, nome da nota, código ou leitor de código de barras), pagamento misto, troco, sangria/suprimento e fechamento. Qualquer usuário pode mudar o preço do item só naquela venda. **A baixa no estoque é automática.** |
-| Vendas | todos | Histórico e cancelamento (devolve ao estoque; vendedor só cancela no caixa aberto). |
+| Vendas | todos | Histórico, **edição** (produto, quantidade, preço, desconto, cliente e forma de pagamento, com motivo e histórico de antes/depois; estoque e fiado acertados pela diferença) e cancelamento (devolve ao estoque). Vendedor só edita/cancela no caixa aberto. |
 | Encordoamento | todos | Fila de ordens (raquete, corda, tensão, prazo), aviso por WhatsApp e cobrança no caixa. |
 | Produtos | todos (vendedor cadastra e muda o preço de venda; custo e promoção: admin) | Cadastro com **apelido** + **nome da nota fiscal**, preço, promoção, e análise de margem ao vivo. Toda mudança de preço de venda fica registrada (quem, de, para, quando). |
 | Estoque | todos (ajuste: admin) | Saldo, valor parado, movimentações, inventário/perda/entrada manual. |

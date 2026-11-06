@@ -9,7 +9,7 @@ const PURCHASE_KINDS = new Set<CustomerEntry["kind"]>(["debito", "ajuste_debito"
 export const ENTRY_LABEL: Record<CustomerEntry["kind"], string> = {
   debito: "Compra",
   pagamento: "Pagamento",
-  estorno: "Venda cancelada",
+  estorno: "Estorno de venda",
   ajuste_debito: "Ajuste (débito)",
   ajuste_credito: "Ajuste (crédito)",
   estorno_pagamento: "Pagamento estornado",
@@ -37,11 +37,13 @@ export function openDebts(entries: CustomerEntry[], now = new Date()): OpenDebt[
     .filter((e) => PURCHASE_KINDS.has(e.kind))
     .map((e) => ({ entry: e, remaining: Number(e.amount) }));
 
-  // estorno vai direto na venda cancelada
+  // estorno (venda cancelada ou editada para menos) vai direto na própria venda;
+  // se a venda foi editada e tem vários débitos, abate um por um
   for (const e of sorted.filter((x) => x.kind === "estorno")) {
     let left = Number(e.amount);
-    const d = debts.find((x) => x.entry.sale_id && x.entry.sale_id === e.sale_id);
-    if (d) {
+    for (const d of debts) {
+      if (left <= 0) break;
+      if (!e.sale_id || d.entry.sale_id !== e.sale_id || d.remaining <= 0) continue;
       const take = Math.min(d.remaining, left);
       d.remaining = round2(d.remaining - take);
       left = round2(left - take);
