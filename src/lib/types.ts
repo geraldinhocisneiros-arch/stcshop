@@ -195,11 +195,13 @@ export interface Customer {
 export interface CustomerEntry {
   id: string;
   customer_id: string;
-  kind: "debito" | "pagamento" | "estorno" | "ajuste_debito" | "ajuste_credito";
+  kind: "debito" | "pagamento" | "estorno" | "ajuste_debito" | "ajuste_credito" | "estorno_pagamento";
   amount: number;
   sale_id: string | null;
   session_id: string | null;
   method: string | null;
   notes: string | null;
+  /** num estorno de pagamento: o pagamento que ele desfaz */
+  reverses_id?: string | null;
   created_at: string;
 }

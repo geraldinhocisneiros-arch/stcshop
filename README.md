@@ -44,7 +44,7 @@ com shadcn/ui e Tailwind.
 Pode ser um projeto **novo** ou o **mesmo** do squashtenniscenter (todas as tabelas têm prefixo
 `shop_`, então não colidem e os logins da academia podem ser reaproveitados).
 
-No SQL Editor do Supabase, rode `supabase/migrations/20261030120000_shop_init.sql`.
+No SQL Editor do Supabase, rode os arquivos de `supabase/migrations/` em ordem (pelo nome/data).
 
 ### 2. Cloudflare (Worker)
 
@@ -84,4 +84,7 @@ createdb shop_test
 psql -d shop_test -v ON_ERROR_STOP=1 -f supabase/tests/00_stub_auth.sql -f supabase/migrations/20261030120000_shop_init.sql
 psql -d shop_test -f supabase/tests/10_fluxo_admin.sql
 psql -d shop_test -f supabase/tests/20_permissoes_vendedor.sql
+psql -d shop_test -f supabase/tests/40_clientes_fiado.sql
+psql -d shop_test -f supabase/tests/50_secretaria_saldo_anterior.sql
+psql -d shop_test -f supabase/tests/60_pagamento_parcial.sql
 ```

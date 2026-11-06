@@ -1,20 +1,20 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLayout, Stat } from "@/components/AppLayout";
-import { AccountEntryDialog, CustomerDialog } from "@/components/CustomerDialogs";
+import { AccountEntryDialog, CustomerDialog, ReversePaymentDialog } from "@/components/CustomerDialogs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { balanceOf, buildCharge, DEBIT_KINDS, debtDescription, ENTRY_LABEL } from "@/lib/accounts";
+import { balanceOf, buildCharge, DEBIT_KINDS, debtDescription, ENTRY_LABEL, reversedPaymentIds } from "@/lib/accounts";
 import { errMsg, loadCustomerEntries, loadMethods, loadSaleDescriptions, loadSettings } from "@/lib/data";
 import { fmtBRL, fmtDateTime, round2 } from "@/lib/format";
 import type { Customer, CustomerEntry, PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { ArrowLeft, HandCoins, MessageCircle, Pencil, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, HandCoins, MessageCircle, Pencil, SlidersHorizontal, Undo2 } from "lucide-react";
 
 export const Route = createFileRoute("/clientes/$id")({
   head: () => ({ meta: [{ title: "Extrato do cliente — Squash Tennis Shop" }] }),
@@ -31,15 +31,19 @@ function ExtratoPage() {
   const [pixKey, setPixKey] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [entryMode, setEntryMode] = useState<"pagamento" | "ajuste" | null>(null);
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  const [reversing, setReversing] = useState<CustomerEntry | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [c, e, m, s] = await Promise.all([
+      const [c, e, m, s, cx] = await Promise.all([
         supabase.from("shop_customers").select("*").eq("id", id).single(),
         loadCustomerEntries([id]),
         loadMethods(),
         loadSettings(),
+        supabase.from("shop_cash_sessions").select("id").eq("status", "aberto").maybeSingle(),
       ]);
+      setOpenSessionId((cx.data as { id: string } | null)?.id ?? null);
       if (c.error) throw c.error;
       setCustomer(c.data as Customer);
       setEntries(e);
@@ -57,6 +61,10 @@ function ExtratoPage() {
   const balance = balanceOf(entries);
   const charge = useMemo(() => (customer ? buildCharge(customer, entries, sales, pixKey) : null), [customer, entries, sales, pixKey]);
   const openIds = new Set(charge?.debts.map((d) => d.entry.id));
+  const reversed = useMemo(() => reversedPaymentIds(entries), [entries]);
+  const paidTotal = round2(
+    entries.reduce((s, e) => s + (e.kind === "pagamento" ? Number(e.amount) : e.kind === "estorno_pagamento" ? -Number(e.amount) : 0), 0),
+  );
 
   // extrato com saldo acumulado, mais recente primeiro
   const statement = useMemo(() => {
@@ -92,7 +100,7 @@ function ExtratoPage() {
           tone={balance > 0 ? "bad" : balance < 0 ? "good" : undefined}
           hint={balance > 0 ? "a receber" : undefined}
         />
-        <Stat label="Limite" value={customer.credit_limit != null ? fmtBRL(customer.credit_limit) : "Sem limite"} />
+        <Stat label="Já pagou (total)" value={fmtBRL(paidTotal)} tone={paidTotal > 0 ? "good" : undefined} hint={customer.credit_limit != null ? `limite ${fmtBRL(customer.credit_limit)}` : undefined} />
         <Stat label="WhatsApp" value={<span className="text-base">{customer.phone ?? "—"}</span>} />
         <Stat
           label="Compra mais antiga em aberto"
@@ -136,14 +144,22 @@ function ExtratoPage() {
               {statement.map(({ e, run }) => {
                 const debit = DEBIT_KINDS.has(e.kind);
                 const sale = e.sale_id ? sales[e.sale_id] : undefined;
+                const wasReversed = reversed.has(e.id);
+                const canReverse = e.kind === "pagamento" && !wasReversed && !!openSessionId && e.session_id === openSessionId;
                 return (
                   <TableRow key={e.id}>
                     <TableCell className="whitespace-nowrap text-xs">{fmtDateTime(e.created_at)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{ENTRY_LABEL[e.kind]}</span>
+                        <span className={cn("font-medium", wasReversed && "line-through opacity-60")}>{ENTRY_LABEL[e.kind]}</span>
                         {sale && <span className="text-xs text-muted-foreground">venda nº {sale.number}</span>}
-                        {e.kind === "pagamento" && <Badge variant="secondary">{label(e.method)}</Badge>}
+                        {(e.kind === "pagamento" || e.kind === "estorno_pagamento") && <Badge variant="secondary">{label(e.method)}</Badge>}
+                        {wasReversed && <Badge variant="outline">estornado</Badge>}
+                        {canReverse && (
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setReversing(e)}>
+                            <Undo2 className="mr-1 h-3 w-3" /> Estornar
+                          </Button>
+                        )}
                         {openIds.has(e.id) && <Badge variant="destructive">em aberto</Badge>}
                       </div>
                       <div className="text-xs text-muted-foreground">
@@ -169,6 +185,7 @@ function ExtratoPage() {
       </Card>
 
       {editing && <CustomerDialog customer={customer} onClose={() => setEditing(false)} onSaved={(c) => setCustomer(c)} />}
+      <ReversePaymentDialog entry={reversing} onClose={() => setReversing(null)} onDone={load} />
       <AccountEntryDialog mode={entryMode} customer={customer} balance={balance} onClose={() => setEntryMode(null)} onDone={load} />
     </AppLayout>
   );

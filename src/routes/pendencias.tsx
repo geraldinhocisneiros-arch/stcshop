@@ -83,6 +83,9 @@ function PendenciasPage() {
                 <div className="text-right">
                   <div className="text-lg font-bold text-destructive tabular-nums">{fmtBRL(charge.total)}</div>
                   <div className="text-xs text-muted-foreground">mais antiga há {charge.debts[0].daysOpen} dias</div>
+                  <div className="text-xs text-muted-foreground">
+                    {c.last_payment_at ? `último pagamento em ${fmtDate(c.last_payment_at)}` : "nenhum pagamento ainda"}
+                  </div>
                 </div>
               </div>
               <div className="divide-y rounded-md border text-sm">

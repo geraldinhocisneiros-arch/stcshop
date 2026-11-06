@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { CashCloseDialog } from "@/components/CashCloseDialog";
 import { CustomerPicker } from "@/components/CustomerPicker";
+import { ReceiveFromCustomerDialog } from "@/components/CustomerDialogs";
 import { ProductDialog, type ProductPrefill } from "@/components/ProductDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +22,7 @@ import { errMsg, loadCustomers, loadMethods, loadProducts, type CustomerWithBala
 import { effectivePrice, fmtBRL, fmtDateTime, fmtNum, matchesSearch, parseDecimal, round2 } from "@/lib/format";
 import type { CashSession, PaymentMethod, Product, StringingOrder } from "@/lib/types";
 import { toast } from "sonner";
-import { ArrowDownCircle, ArrowUpCircle, Lock, Minus, PackagePlus, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, HandCoins, Lock, Minus, PackagePlus, Plus, Search, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/caixa")({
   head: () => ({ meta: [{ title: "Caixa — Squash Tennis Shop" }] }),
@@ -57,6 +58,7 @@ function CaixaPage() {
   const [openDialog, setOpenDialog] = useState(false);
   const [moveDialog, setMoveDialog] = useState<"sangria" | "suprimento" | null>(null);
   const [closeDialog, setCloseDialog] = useState(false);
+  const [receiveDialog, setReceiveDialog] = useState(false);
   // cadastrar produto sem sair do caixa (o carrinho continua como está)
   const [newProduct, setNewProduct] = useState<ProductPrefill | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -212,6 +214,9 @@ function CaixaPage() {
       actions={
         session && (
           <>
+            <Button size="sm" onClick={() => setReceiveDialog(true)}>
+              <HandCoins className="mr-1 h-4 w-4" /> Receber de cliente
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setMoveDialog("sangria")}>
               <ArrowUpCircle className="mr-1 h-4 w-4" /> Sangria
             </Button>
@@ -508,6 +513,7 @@ function CaixaPage() {
       />
       <OpenCashDialog open={openDialog} onOpenChange={setOpenDialog} onDone={load} />
       <CashMoveDialog kind={moveDialog} onClose={() => setMoveDialog(null)} />
+      <ReceiveFromCustomerDialog open={receiveDialog} onClose={() => setReceiveDialog(false)} />
       {session && (
         <CashCloseDialog
           open={closeDialog}
