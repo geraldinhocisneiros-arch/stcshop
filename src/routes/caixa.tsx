@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { CashCloseDialog } from "@/components/CashCloseDialog";
 import { CustomerPicker } from "@/components/CustomerPicker";
+import { ReceiveFromCustomerDialog } from "@/components/CustomerDialogs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,7 +22,7 @@ import { effectivePrice, fmtBRL, fmtDateTime, fmtNum, matchesSearch, parseDecima
 import type { CashSession, PaymentMethod, Product, StringingOrder } from "@/lib/types";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import { ArrowDownCircle, ArrowUpCircle, Lock, Minus, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, HandCoins, Lock, Minus, Plus, Search, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/caixa")({
   head: () => ({ meta: [{ title: "Caixa — Squash Tennis Shop" }] }),
@@ -58,6 +59,7 @@ function CaixaPage() {
   const [openDialog, setOpenDialog] = useState(false);
   const [moveDialog, setMoveDialog] = useState<"sangria" | "suprimento" | null>(null);
   const [closeDialog, setCloseDialog] = useState(false);
+  const [receiveDialog, setReceiveDialog] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -203,6 +205,9 @@ function CaixaPage() {
       actions={
         session && (
           <>
+            <Button size="sm" onClick={() => setReceiveDialog(true)}>
+              <HandCoins className="mr-1 h-4 w-4" /> Receber de cliente
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setMoveDialog("sangria")}>
               <ArrowUpCircle className="mr-1 h-4 w-4" /> Sangria
             </Button>
@@ -460,6 +465,7 @@ function CaixaPage() {
 
       <OpenCashDialog open={openDialog} onOpenChange={setOpenDialog} onDone={load} />
       <CashMoveDialog kind={moveDialog} onClose={() => setMoveDialog(null)} />
+      <ReceiveFromCustomerDialog open={receiveDialog} onClose={() => setReceiveDialog(false)} />
       {session && (
         <CashCloseDialog
           open={closeDialog}
