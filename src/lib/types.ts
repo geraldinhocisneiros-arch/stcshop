@@ -91,6 +91,29 @@ export interface Sale {
   created_at: string;
   canceled_at: string | null;
   cancel_reason: string | null;
+  customer_id?: string | null;
+  edited_at?: string | null;
+  edit_count?: number;
+}
+
+export interface SaleSnapshot {
+  customer_id: string | null;
+  customer_name: string | null;
+  subtotal: number;
+  discount: number;
+  total: number;
+  items: Array<{ product_id: string; description: string; qty: number; unit_price: number }>;
+  payments: Array<{ method: string; amount: number }>;
+}
+
+export interface SaleEdit {
+  id: string;
+  sale_id: string;
+  reason: string;
+  before: SaleSnapshot;
+  after: SaleSnapshot;
+  edited_by: string | null;
+  edited_at: string;
 }
 
 export interface CashSession {

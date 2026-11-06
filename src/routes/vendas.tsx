@@ -11,7 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { endOfDayISO, fmtBRL, fmtDateTime, fmtNum, isoDay, startOfDayISO } from "@/lib/format";
 import { loadMethods } from "@/lib/data";
-import type { PaymentMethod, Sale } from "@/lib/types";
+import type { PaymentMethod, Sale, SaleEdit, SaleSnapshot } from "@/lib/types";
+import { SaleEditDialog } from "@/components/SaleEditDialog";
+import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/vendas")({
@@ -20,7 +22,7 @@ export const Route = createFileRoute("/vendas")({
 });
 
 interface SaleDetail extends Sale {
-  shop_sale_items: Array<{ id: string; description: string; qty: number; unit_price: number; discount: number; total: number }>;
+  shop_sale_items: Array<{ id: string; product_id: string; description: string; qty: number; unit_price: number; discount: number; total: number }>;
   shop_sale_payments: Array<{ id: string; method: string; amount: number; fee_amount: number }>;
 }
 
@@ -32,6 +34,9 @@ function VendasPage() {
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [open, setOpen] = useState<SaleDetail | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [editing, setEditing] = useState<SaleDetail | null>(null);
+  const [history, setHistory] = useState<SaleEdit[]>([]);
+  const [names, setNames] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
@@ -49,7 +54,21 @@ function VendasPage() {
   }, [load]);
   useEffect(() => {
     loadMethods().then(setMethods);
+    supabase
+      .from("shop_user_roles")
+      .select("user_id, full_name")
+      .then(({ data }) => setNames(Object.fromEntries((data ?? []).map((u) => [u.user_id, u.full_name]))));
   }, []);
+  useEffect(() => {
+    setHistory([]);
+    if (!open?.edit_count) return;
+    supabase
+      .from("shop_sale_edits")
+      .select("*")
+      .eq("sale_id", open.id)
+      .order("edited_at", { ascending: false })
+      .then(({ data, error }) => (error ? toast.error(error.message) : setHistory((data ?? []) as SaleEdit[])));
+  }, [open]);
 
   const label = (c: string) => methods.find((m) => m.code === c)?.label ?? c;
   const done = sales.filter((s) => s.status === "concluida");
@@ -92,6 +111,11 @@ function VendasPage() {
                     {s.status === "cancelada" && (
                       <Badge variant="destructive" className="ml-2">
                         cancelada
+                      </Badge>
+                    )}
+                    {s.status !== "cancelada" && !!s.edit_count && (
+                      <Badge variant="secondary" className="ml-2" title={`Alterada em ${fmtDateTime(s.edited_at)}`}>
+                        editada
                       </Badge>
                     )}
                   </TableCell>
@@ -158,6 +182,21 @@ function VendasPage() {
                   </div>
                 ))}
               </div>
+              {history.length > 0 && (
+                <div className="space-y-2 rounded-md border p-2">
+                  <div className="font-medium">Histórico de alterações</div>
+                  {history.map((h) => (
+                    <div key={h.id} className="space-y-0.5 border-t pt-2 text-xs first:border-t-0 first:pt-0">
+                      <div>
+                        <b>{fmtDateTime(h.edited_at)}</b>
+                        {h.edited_by && names[h.edited_by] ? ` · ${names[h.edited_by]}` : ""} — {h.reason}
+                      </div>
+                      <div className="text-muted-foreground">Antes: {describeSnapshot(h.before, label)}</div>
+                      <div className="text-muted-foreground">Depois: {describeSnapshot(h.after, label)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {open.status === "cancelada" ? (
                 <div className="rounded-md bg-destructive/10 p-2 text-destructive">
                   Cancelada em {fmtDateTime(open.canceled_at)} — {open.cancel_reason}
@@ -170,7 +209,10 @@ function VendasPage() {
               )}
             </div>
             {open.status !== "cancelada" && (
-              <DialogFooter>
+              <DialogFooter className="gap-2 sm:justify-between">
+                <Button variant="outline" onClick={() => setEditing(open)}>
+                  <Pencil className="mr-1 h-4 w-4" /> Editar venda
+                </Button>
                 <Button
                   variant="destructive"
                   disabled={!cancelReason.trim()}
@@ -190,6 +232,25 @@ function VendasPage() {
           </DialogContent>
         )}
       </Dialog>
+
+      <SaleEditDialog
+        sale={editing}
+        methods={methods}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          setOpen(null);
+          load();
+        }}
+      />
     </AppLayout>
   );
+}
+
+function describeSnapshot(s: SaleSnapshot, label: (code: string) => string) {
+  const items = s.items.map((i) => `${fmtNum(i.qty, 2)}× ${i.description} (${fmtBRL(i.unit_price)})`).join(", ");
+  const pays = s.payments.map((p) => `${label(p.method)} ${fmtBRL(p.amount)}`).join(" + ");
+  const disc = Number(s.discount) > 0 ? ` · desc. ${fmtBRL(s.discount)}` : "";
+  const who = s.customer_name ? ` · ${s.customer_name}` : "";
+  return `${items}${disc} = ${fmtBRL(s.total)} · ${pays}${who}`;
 }

@@ -42,6 +42,7 @@ const KIND_LABEL: Record<string, string> = {
   entrada_manual: "Entrada manual",
   venda: "Venda",
   cancelamento_venda: "Venda cancelada",
+  edicao_venda: "Venda editada",
   ajuste: "Ajuste (inventário)",
   perda: "Saída manual",
 };

@@ -24,6 +24,21 @@ describe("conta do cliente", () => {
     expect(open.map((d) => d.entry.sale_id)).toEqual(["s1"]);
     expect(open[0].remaining).toBe(100);
   });
+  test("venda editada várias vezes: estornos abatem os débitos da própria venda", () => {
+    const entries = [
+      e("debito", 100, 1, "s1"),
+      e("debito", 74.7, 5, "s2"),
+      e("estorno", 44.7, 6, "s2"),
+      e("debito", 20, 7, "s2"),
+      e("estorno", 40, 8, "s2"),
+    ];
+    expect(balanceOf(entries)).toBe(110);
+    const open = openDebts(entries);
+    expect(open.map((d) => [d.entry.sale_id, d.remaining])).toEqual([
+      ["s1", 100],
+      ["s2", 10],
+    ]);
+  });
   test("tudo pago: nada em aberto", () => {
     const entries = [e("debito", 40, 1), e("ajuste_debito", 10, 2), e("pagamento", 50, 3)];
     expect(balanceOf(entries)).toBe(0);
