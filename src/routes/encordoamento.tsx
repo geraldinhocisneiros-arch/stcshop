@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { ProductPicker } from "@/components/ProductPicker";
@@ -34,7 +34,6 @@ const STATUS: Record<StringingOrder["status"], { label: string; next?: Stringing
 
 function EncordoamentoPage() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [orders, setOrders] = useState<StringingOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [tab, setTab] = useState<"abertas" | "pronta" | "entregue">("abertas");
@@ -68,6 +67,7 @@ function EncordoamentoPage() {
   const setStatus = async (o: StringingOrder, status: StringingOrder["status"]) => {
     const patch: Partial<StringingOrder> = { status };
     if (status === "pronta") patch.ready_at = new Date().toISOString();
+    if (status === "entregue") patch.delivered_at = new Date().toISOString();
     const { error } = await supabase.from("shop_stringing_orders").update(patch).eq("id", o.id);
     if (error) return toast.error(error.message);
     load();
@@ -129,6 +129,11 @@ function EncordoamentoPage() {
                     <b>Entrega:</b> {fmtDateTime(o.due_at)}
                   </div>
                 )}
+                {o.delivered_at && o.status === "entregue" && (
+                  <div>
+                    <b>Entregue em:</b> {fmtDateTime(o.delivered_at)}
+                  </div>
+                )}
                 {o.notes && <div className="text-xs text-muted-foreground">{o.notes}</div>}
                 <div className="font-medium">{fmtBRL(o.price)}</div>
                 <div className="flex flex-wrap gap-2 pt-1">
@@ -139,8 +144,8 @@ function EncordoamentoPage() {
                   )}
                   {o.status === "pronta" && (
                     <>
-                      <Button size="sm" onClick={() => navigate({ to: "/caixa", search: { ordem: o.id } })}>
-                        Cobrar no caixa
+                      <Button size="sm" onClick={() => setStatus(o, "entregue")}>
+                        Entregue
                       </Button>
                       {o.customer_phone && (
                         <Button size="sm" variant="outline" onClick={() => whatsapp(o)}>
