@@ -1,6 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
+import { CustomerPicker } from "@/components/CustomerPicker";
 import { ProductPicker } from "@/components/ProductPicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,12 +13,12 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { errMsg, loadProducts } from "@/lib/data";
-import { fmtBRL, fmtDateTime, parseDecimal } from "@/lib/format";
-import type { Product, StringingOrder } from "@/lib/types";
+import { errMsg, loadCustomers, loadMethods, loadProducts, type CustomerWithBalance } from "@/lib/data";
+import { effectivePrice, fmtBRL, fmtDateTime, parseDecimal, round2 } from "@/lib/format";
+import type { PaymentMethod, Product, StringingOrder } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { MessageCircle, Plus } from "lucide-react";
+import { Gift, HandCoins, MessageCircle, Plus } from "lucide-react";
 
 export const Route = createFileRoute("/encordoamento")({
   head: () => ({ meta: [{ title: "Encordoamento — Squash Tennis Shop" }] }),
@@ -34,11 +35,11 @@ const STATUS: Record<StringingOrder["status"], { label: string; next?: Stringing
 
 function EncordoamentoPage() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [orders, setOrders] = useState<StringingOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [tab, setTab] = useState<"abertas" | "pronta" | "entregue">("abertas");
   const [dialog, setDialog] = useState(false);
+  const [delivering, setDelivering] = useState<StringingOrder | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -68,6 +69,7 @@ function EncordoamentoPage() {
   const setStatus = async (o: StringingOrder, status: StringingOrder["status"]) => {
     const patch: Partial<StringingOrder> = { status };
     if (status === "pronta") patch.ready_at = new Date().toISOString();
+    if (status === "entregue") patch.delivered_at = new Date().toISOString();
     const { error } = await supabase.from("shop_stringing_orders").update(patch).eq("id", o.id);
     if (error) return toast.error(error.message);
     load();
@@ -129,6 +131,11 @@ function EncordoamentoPage() {
                     <b>Entrega:</b> {fmtDateTime(o.due_at)}
                   </div>
                 )}
+                {o.delivered_at && o.status === "entregue" && (
+                  <div>
+                    <b>Entregue em:</b> {fmtDateTime(o.delivered_at)}
+                  </div>
+                )}
                 {o.notes && <div className="text-xs text-muted-foreground">{o.notes}</div>}
                 <div className="font-medium">{fmtBRL(o.price)}</div>
                 <div className="flex flex-wrap gap-2 pt-1">
@@ -139,8 +146,8 @@ function EncordoamentoPage() {
                   )}
                   {o.status === "pronta" && (
                     <>
-                      <Button size="sm" onClick={() => navigate({ to: "/caixa", search: { ordem: o.id } })}>
-                        Cobrar no caixa
+                      <Button size="sm" onClick={() => setDelivering(o)}>
+                        Entregue
                       </Button>
                       {o.customer_phone && (
                         <Button size="sm" variant="outline" onClick={() => whatsapp(o)}>
@@ -162,8 +169,206 @@ function EncordoamentoPage() {
         {list.length === 0 && <p className="text-muted-foreground">Nenhuma ordem aqui.</p>}
       </div>
 
+      <DeliverDialog order={delivering} products={products} onClose={() => setDelivering(null)} onDone={load} />
       <NewOrderDialog open={dialog} onOpenChange={setDialog} products={products} userId={user?.id} onDone={load} />
     </AppLayout>
+  );
+}
+
+type DeliverChoice = { kind: "pago"; method: string } | { kind: "pendente" } | { kind: "cortesia" };
+
+/**
+ * Entrega da raquete pronta. Sempre pergunta como ficou o pagamento e registra
+ * a venda (serviço + corda da loja) — assim o valor entra no caixa/relatórios,
+ * a corda sai do estoque e o fiado aparece em Pendências.
+ */
+function DeliverDialog({
+  order,
+  products,
+  onClose,
+  onDone,
+}: {
+  order: StringingOrder | null;
+  products: Product[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { isAdmin } = useAuth();
+  const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [cashOpen, setCashOpen] = useState<boolean | null>(null);
+  const [customer, setCustomer] = useState<CustomerWithBalance | null>(null);
+  const [choice, setChoice] = useState<DeliverChoice | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!order) return;
+    setChoice(null);
+    setCustomer(null);
+    setCashOpen(null);
+    (async () => {
+      try {
+        const [m, s, cs] = await Promise.all([
+          loadMethods(),
+          supabase.from("shop_cash_sessions").select("id").eq("status", "aberto").maybeSingle(),
+          loadCustomers(),
+        ]);
+        setMethods(m.filter((x) => x.active && x.code !== "conta"));
+        setCashOpen(!!s.data);
+        // tenta achar o cliente cadastrado pelo telefone (ou nome) da ordem
+        const digits = (order.customer_phone ?? "").replace(/\D/g, "");
+        setCustomer(
+          cs.find((c) => c.active && digits.length >= 8 && (c.phone ?? "").replace(/\D/g, "").endsWith(digits.slice(-8))) ??
+            cs.find((c) => c.active && c.name.trim().toLowerCase() === order.customer_name.trim().toLowerCase()) ??
+            null,
+        );
+      } catch (e) {
+        toast.error(errMsg(e));
+      }
+    })();
+  }, [order]);
+
+  if (!order) return null;
+
+  const items: { product: Product; unit_price: number }[] = [];
+  const service = products.find((p) => p.id === order.service_product_id);
+  if (service) items.push({ product: service, unit_price: Number(order.price ?? service.sale_price) });
+  const str = order.string_product_id ? products.find((p) => p.id === order.string_product_id) : undefined;
+  if (str) items.push({ product: str, unit_price: effectivePrice(str) });
+  const total = round2(items.reduce((s, i) => s + i.unit_price, 0));
+
+  const registerCustomer = async () => {
+    const { data, error } = await supabase
+      .from("shop_customers")
+      .insert({ name: order.customer_name.trim(), phone: order.customer_phone?.trim() || null })
+      .select("*")
+      .single();
+    if (error) return toast.error(error.message);
+    toast.success("Cliente cadastrado");
+    setCustomer({ ...(data as CustomerWithBalance), balance: 0, last_debit_at: null, last_payment_at: null });
+  };
+
+  const confirm = async () => {
+    if (!choice) return toast.error("Escolha como ficou o pagamento");
+    if (!service) return toast.error("Serviço da ordem não encontrado em Produtos");
+    if (choice.kind === "pendente" && !customer) return toast.error("Escolha o cliente para lançar como pendente");
+    setBusy(true);
+    const { data, error } = await supabase.rpc("shop_finalize_sale", {
+      p_items: items.map((i) => ({ product_id: i.product.id, qty: 1, unit_price: i.unit_price })),
+      p_payments:
+        choice.kind === "cortesia" || total === 0
+          ? []
+          : [{ method: choice.kind === "pendente" ? "conta" : choice.method, amount: total }],
+      p_discount: choice.kind === "cortesia" ? total : 0,
+      p_customer_name: customer ? null : order.customer_name,
+      p_notes: `${choice.kind === "cortesia" ? "Cortesia — " : ""}Encordoamento nº ${order.number}`,
+      p_stringing_order_id: order.id,
+      p_customer_id: customer?.id ?? null,
+    });
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    const r = data as { number: number };
+    toast.success(
+      choice.kind === "pendente"
+        ? `Entregue — ${fmtBRL(total)} lançado como pendente na conta de ${customer?.name}`
+        : choice.kind === "cortesia"
+          ? `Entregue como cortesia (venda nº ${r.number})`
+          : `Entregue — venda nº ${r.number} de ${fmtBRL(total)} registrada`,
+    );
+    onClose();
+    onDone();
+  };
+
+  const isSel = (c: DeliverChoice) =>
+    choice?.kind === c.kind && (c.kind !== "pago" || (choice.kind === "pago" && choice.method === c.method));
+
+  return (
+    <Dialog open={!!order} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            Entregar ordem #{order.number} · {order.customer_name}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          <div className="rounded-md border p-3">
+            {items.map((i) => (
+              <div key={i.product.id} className="flex justify-between">
+                <span>{i.product.name}</span>
+                <span className="tabular-nums">{fmtBRL(i.unit_price)}</span>
+              </div>
+            ))}
+            <div className="mt-1 flex justify-between border-t pt-1 font-semibold">
+              <span>Total</span>
+              <span className="tabular-nums">{fmtBRL(total)}</span>
+            </div>
+          </div>
+
+          {cashOpen === false && (
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3">
+              O caixa está fechado. Para registrar a entrega,{" "}
+              <Link to="/caixa" search={{ ordem: undefined }} className="font-medium underline">
+                abra o caixa
+              </Link>{" "}
+              primeiro.
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Já foi pago?</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {methods.map((m) => (
+                <Button
+                  key={m.code}
+                  variant={isSel({ kind: "pago", method: m.code }) ? "default" : "outline"}
+                  onClick={() => setChoice({ kind: "pago", method: m.code })}
+                >
+                  {m.label}
+                </Button>
+              ))}
+              <Button
+                variant={isSel({ kind: "pendente" }) ? "default" : "outline"}
+                onClick={() => setChoice({ kind: "pendente" })}
+              >
+                <HandCoins className="mr-1 h-4 w-4" /> Pendente
+              </Button>
+              <Button
+                variant={isSel({ kind: "cortesia" }) ? "default" : "outline"}
+                onClick={() => setChoice({ kind: "cortesia" })}
+              >
+                <Gift className="mr-1 h-4 w-4" /> Cortesia
+              </Button>
+            </div>
+            {choice?.kind === "pendente" && (
+              <p className="text-xs text-muted-foreground">O valor vai para a conta do cliente e aparece em Pendências.</p>
+            )}
+            {choice?.kind === "cortesia" && (
+              <p className="text-xs text-muted-foreground">
+                Registra a venda com 100% de desconto (o custo da corda continua contando).
+                {!isAdmin && " Só o administrador pode dar cortesia."}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <Label>Cliente{choice?.kind === "pendente" ? " *" : ""}</Label>
+            <CustomerPicker value={customer} onChange={setCustomer} />
+            {!customer && choice?.kind === "pendente" && (
+              <Button size="sm" variant="link" className="h-auto p-0" onClick={registerCustomer}>
+                Cadastrar "{order.customer_name}"{order.customer_phone ? ` (${order.customer_phone})` : ""}
+              </Button>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Voltar
+          </Button>
+          <Button onClick={confirm} disabled={busy || !choice || cashOpen === false}>
+            Confirmar entrega
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
