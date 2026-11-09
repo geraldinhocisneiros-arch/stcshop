@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { balanceOf, chargeMessage, openDebts, whatsappLink } from "./accounts";
+import { balanceOf, chargeMessage, openDebts, receiptMessage, reversedPaymentIds, whatsappLink } from "./accounts";
 import type { CustomerEntry } from "./types";
 
 let n = 0;
-const e = (kind: CustomerEntry["kind"], amount: number, day: number, sale_id: string | null = null): CustomerEntry => ({
-  id: String(++n), customer_id: "c", kind, amount, sale_id, session_id: null, method: null, notes: null,
+const e = (kind: CustomerEntry["kind"], amount: number, day: number, sale_id: string | null = null, reverses_id: string | null = null): CustomerEntry => ({
+  id: String(++n), customer_id: "c", kind, amount, sale_id, session_id: null, method: null, notes: null, reverses_id,
   created_at: `2026-10-${String(day).padStart(2, "0")}T12:00:00Z`,
 });
 
@@ -24,6 +24,21 @@ describe("conta do cliente", () => {
     expect(open.map((d) => d.entry.sale_id)).toEqual(["s1"]);
     expect(open[0].remaining).toBe(100);
   });
+  test("venda editada várias vezes: estornos abatem os débitos da própria venda", () => {
+    const entries = [
+      e("debito", 100, 1, "s1"),
+      e("debito", 74.7, 5, "s2"),
+      e("estorno", 44.7, 6, "s2"),
+      e("debito", 20, 7, "s2"),
+      e("estorno", 40, 8, "s2"),
+    ];
+    expect(balanceOf(entries)).toBe(110);
+    const open = openDebts(entries);
+    expect(open.map((d) => [d.entry.sale_id, d.remaining])).toEqual([
+      ["s1", 100],
+      ["s2", 10],
+    ]);
+  });
   test("tudo pago: nada em aberto", () => {
     const entries = [e("debito", 40, 1), e("ajuste_debito", 10, 2), e("pagamento", 50, 3)];
     expect(balanceOf(entries)).toBe(0);
@@ -41,5 +56,31 @@ describe("conta do cliente", () => {
     expect(msg).toContain("PIX (chave: loja@squash.com)");
     expect(whatsappLink("(81) 99999-0000", "oi")).toBe("https://wa.me/5581999990000?text=oi");
     expect(whatsappLink("", "oi")).toBeNull();
+  });
+  test("abater aos poucos: deve 1000, paga 200 e 300, sobra 500", () => {
+    const entries = [e("ajuste_debito", 1000, 1), e("pagamento", 200, 5), e("pagamento", 300, 12)];
+    expect(balanceOf(entries)).toBe(500);
+    const open = openDebts(entries);
+    expect(open).toHaveLength(1);
+    expect(open[0].remaining).toBe(500);
+  });
+  test("pagamento estornado volta para a dívida e não vira compra nova", () => {
+    const pay = e("pagamento", 200, 5);
+    const entries = [e("ajuste_debito", 1000, 1), pay, e("estorno_pagamento", 200, 5, null, pay.id)];
+    expect(balanceOf(entries)).toBe(1000);
+    const open = openDebts(entries);
+    expect(open).toHaveLength(1);
+    expect(open[0].remaining).toBe(1000);
+    expect(reversedPaymentIds(entries).has(pay.id)).toBe(true);
+  });
+  test("comprovante com saldo restante ou quitado", () => {
+    const parcial = receiptMessage({ customerName: "João Silva", amount: 200, methodLabel: "PIX", date: "2026-11-06T12:00:00Z", remaining: 800, pixKey: "x@y" });
+    expect(parcial).toContain("Olá, João!");
+    expect(parcial).toContain("Saldo restante na sua conta: *R$");
+    expect(parcial).toContain("800,00");
+    expect(parcial).toContain("chave: x@y");
+    const quitado = receiptMessage({ customerName: "João", amount: 800, methodLabel: "Dinheiro", date: "2026-11-06T12:00:00Z", remaining: 0 });
+    expect(quitado).toContain("quitada");
+    expect(quitado).not.toContain("chave");
   });
 });
