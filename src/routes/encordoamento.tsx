@@ -17,19 +17,29 @@ import { fmtBRL, fmtDateTime, parseDecimal } from "@/lib/format";
 import type { Product, StringingOrder } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { MessageCircle, Plus } from "lucide-react";
+import { MessageCircle, Plus, Undo2 } from "lucide-react";
 
 export const Route = createFileRoute("/encordoamento")({
   head: () => ({ meta: [{ title: "Encordoamento — Squash Tennis Shop" }] }),
   component: EncordoamentoPage,
 });
 
-const STATUS: Record<StringingOrder["status"], { label: string; next?: StringingOrder["status"]; nextLabel?: string }> = {
+type StatusInfo = {
+  label: string;
+  next?: StringingOrder["status"];
+  nextLabel?: string;
+  prev?: StringingOrder["status"];
+  prevLabel?: string;
+};
+
+// "entregue" não volta por aqui: está amarrada a uma venda. Para desfazer, cancela-se a venda no caixa,
+// e a função de cancelamento devolve a ordem para "pronta".
+const STATUS: Record<StringingOrder["status"], StatusInfo> = {
   recebida: { label: "Recebida", next: "em_andamento", nextLabel: "Iniciar" },
-  em_andamento: { label: "Em andamento", next: "pronta", nextLabel: "Marcar pronta" },
-  pronta: { label: "Pronta" },
+  em_andamento: { label: "Em andamento", next: "pronta", nextLabel: "Marcar pronta", prev: "recebida", prevLabel: "Voltar p/ Recebida" },
+  pronta: { label: "Pronta", prev: "em_andamento", prevLabel: "Voltar p/ Em andamento" },
   entregue: { label: "Entregue" },
-  cancelada: { label: "Cancelada" },
+  cancelada: { label: "Cancelada", prev: "recebida", prevLabel: "Reabrir" },
 };
 
 function EncordoamentoPage() {
@@ -68,6 +78,7 @@ function EncordoamentoPage() {
   const setStatus = async (o: StringingOrder, status: StringingOrder["status"]) => {
     const patch: Partial<StringingOrder> = { status };
     if (status === "pronta") patch.ready_at = new Date().toISOString();
+    else if (o.status === "pronta") patch.ready_at = null;
     const { error } = await supabase.from("shop_stringing_orders").update(patch).eq("id", o.id);
     if (error) return toast.error(error.message);
     load();
@@ -129,6 +140,9 @@ function EncordoamentoPage() {
                     <b>Entrega:</b> {fmtDateTime(o.due_at)}
                   </div>
                 )}
+                {o.status === "entregue" && (
+                  <div className="text-xs text-muted-foreground">Para desfazer a entrega, cancele a venda no caixa.</div>
+                )}
                 {o.notes && <div className="text-xs text-muted-foreground">{o.notes}</div>}
                 <div className="font-medium">{fmtBRL(o.price)}</div>
                 <div className="flex flex-wrap gap-2 pt-1">
@@ -148,6 +162,17 @@ function EncordoamentoPage() {
                         </Button>
                       )}
                     </>
+                  )}
+                  {st.prev && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (window.confirm(`Ordem #${o.number}: ${st.prevLabel}?`)) setStatus(o, st.prev!);
+                      }}
+                    >
+                      <Undo2 className="mr-1 h-4 w-4" /> {st.prevLabel}
+                    </Button>
                   )}
                   {(o.status === "recebida" || o.status === "em_andamento") && (
                     <Button size="sm" variant="ghost" onClick={() => setStatus(o, "cancelada")}>
