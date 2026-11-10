@@ -9,7 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -18,33 +24,54 @@ import { effectivePrice, fmtBRL, fmtDateTime, parseDecimal, round2 } from "@/lib
 import type { PaymentMethod, Product, StringingOrder } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Gift, HandCoins, MessageCircle, Plus } from "lucide-react";
+import { Gift, HandCoins, MessageCircle, Pencil, Plus, Undo2 } from "lucide-react";
 
 export const Route = createFileRoute("/encordoamento")({
   head: () => ({ meta: [{ title: "Encordoamento — Squash Tennis Shop" }] }),
   component: EncordoamentoPage,
 });
 
-const STATUS: Record<StringingOrder["status"], { label: string; next?: StringingOrder["status"]; nextLabel?: string }> = {
+type StatusInfo = {
+  label: string;
+  next?: StringingOrder["status"];
+  nextLabel?: string;
+  prev?: StringingOrder["status"];
+  prevLabel?: string;
+};
+
+// "entregue" não volta por aqui: está amarrada a uma venda. Para desfazer, cancela-se a venda no caixa,
+// e a função de cancelamento devolve a ordem para "pronta".
+const STATUS: Record<StringingOrder["status"], StatusInfo> = {
   recebida: { label: "Recebida", next: "em_andamento", nextLabel: "Iniciar" },
-  em_andamento: { label: "Em andamento", next: "pronta", nextLabel: "Marcar pronta" },
-  pronta: { label: "Pronta" },
+  em_andamento: {
+    label: "Em andamento",
+    next: "pronta",
+    nextLabel: "Marcar pronta",
+    prev: "recebida",
+    prevLabel: "Voltar p/ Recebida",
+  },
+  pronta: { label: "Pronta", prev: "em_andamento", prevLabel: "Voltar p/ Em andamento" },
   entregue: { label: "Entregue" },
-  cancelada: { label: "Cancelada" },
+  cancelada: { label: "Cancelada", prev: "recebida", prevLabel: "Reabrir" },
 };
 
 function EncordoamentoPage() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [orders, setOrders] = useState<StringingOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [tab, setTab] = useState<"abertas" | "pronta" | "entregue">("abertas");
   const [dialog, setDialog] = useState(false);
   const [delivering, setDelivering] = useState<StringingOrder | null>(null);
+  const [editing, setEditing] = useState<StringingOrder | null>(null);
 
   const load = useCallback(async () => {
     try {
       const [o, p] = await Promise.all([
-        supabase.from("shop_stringing_orders").select("*").order("created_at", { ascending: false }).limit(500),
+        supabase
+          .from("shop_stringing_orders")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(500),
         loadProducts({ onlyActive: true }),
       ]);
       setOrders((o.data ?? []) as StringingOrder[]);
@@ -59,7 +86,11 @@ function EncordoamentoPage() {
 
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const list = orders.filter((o) =>
-    tab === "abertas" ? o.status === "recebida" || o.status === "em_andamento" : tab === "pronta" ? o.status === "pronta" : o.status === "entregue" || o.status === "cancelada",
+    tab === "abertas"
+      ? o.status === "recebida" || o.status === "em_andamento"
+      : tab === "pronta"
+        ? o.status === "pronta"
+        : o.status === "entregue" || o.status === "cancelada",
   );
   const counts = {
     abertas: orders.filter((o) => o.status === "recebida" || o.status === "em_andamento").length,
@@ -69,7 +100,7 @@ function EncordoamentoPage() {
   const setStatus = async (o: StringingOrder, status: StringingOrder["status"]) => {
     const patch: Partial<StringingOrder> = { status };
     if (status === "pronta") patch.ready_at = new Date().toISOString();
-    if (status === "entregue") patch.delivered_at = new Date().toISOString();
+    else if (o.status === "pronta") patch.ready_at = null;
     const { error } = await supabase.from("shop_stringing_orders").update(patch).eq("id", o.id);
     if (error) return toast.error(error.message);
     load();
@@ -86,7 +117,13 @@ function EncordoamentoPage() {
     <AppLayout
       title="Encordoamento"
       actions={
-        <Button size="sm" onClick={() => setDialog(true)}>
+        <Button
+          size="sm"
+          onClick={() => {
+            setEditing(null);
+            setDialog(true);
+          }}
+        >
           <Plus className="mr-1 h-4 w-4" /> Nova ordem
         </Button>
       }
@@ -101,9 +138,14 @@ function EncordoamentoPage() {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {list.map((o) => {
-          const late = o.due_at && new Date(o.due_at) < new Date() && (o.status === "recebida" || o.status === "em_andamento");
+          const late =
+            o.due_at &&
+            new Date(o.due_at) < new Date() &&
+            (o.status === "recebida" || o.status === "em_andamento");
           const st = STATUS[o.status];
-          const str = o.string_product_id ? byId.get(o.string_product_id)?.name : o.string_description;
+          const str = o.string_product_id
+            ? byId.get(o.string_product_id)?.name
+            : o.string_description;
           return (
             <Card key={o.id} className={cn(late && "border-destructive")}>
               <CardContent className="space-y-2 p-4 text-sm">
@@ -114,17 +156,25 @@ function EncordoamentoPage() {
                     </div>
                     <div className="text-xs text-muted-foreground">{o.customer_phone}</div>
                   </div>
-                  <Badge variant={o.status === "pronta" ? "default" : "secondary"}>{st.label}</Badge>
+                  <Badge variant={o.status === "pronta" ? "default" : "secondary"}>
+                    {st.label}
+                  </Badge>
                 </div>
                 <div>
                   <b>Raquete:</b> {o.racket || "—"}
                 </div>
                 <div>
-                  <b>Corda:</b> {str || "—"} {!o.string_product_id && o.string_description && <span className="text-xs">(do cliente)</span>}
+                  <b>Corda:</b> {str || "—"}{" "}
+                  {!o.string_product_id && o.string_description && (
+                    <span className="text-xs">(do cliente)</span>
+                  )}
                 </div>
                 <div>
                   <b>Tensão:</b> {o.tension_main ?? "—"}
-                  {o.tension_cross && o.tension_cross !== o.tension_main ? ` / ${o.tension_cross}` : ""} lb
+                  {o.tension_cross && o.tension_cross !== o.tension_main
+                    ? ` / ${o.tension_cross}`
+                    : ""}{" "}
+                  lb
                 </div>
                 {o.due_at && (
                   <div className={cn(late && "font-semibold text-destructive")}>
@@ -134,6 +184,11 @@ function EncordoamentoPage() {
                 {o.delivered_at && o.status === "entregue" && (
                   <div>
                     <b>Entregue em:</b> {fmtDateTime(o.delivered_at)}
+                  </div>
+                )}
+                {o.status === "entregue" && (
+                  <div className="text-xs text-muted-foreground">
+                    Para desfazer a entrega, cancele a venda no caixa.
                   </div>
                 )}
                 {o.notes && <div className="text-xs text-muted-foreground">{o.notes}</div>}
@@ -156,6 +211,30 @@ function EncordoamentoPage() {
                       )}
                     </>
                   )}
+                  {st.prev && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (window.confirm(`Ordem #${o.number}: ${st.prevLabel}?`))
+                          setStatus(o, st.prev!);
+                      }}
+                    >
+                      <Undo2 className="mr-1 h-4 w-4" /> {st.prevLabel}
+                    </Button>
+                  )}
+                  {EDITABLE.includes(o.status) && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setEditing(o);
+                        setDialog(true);
+                      }}
+                    >
+                      <Pencil className="mr-1 h-4 w-4" /> Editar
+                    </Button>
+                  )}
                   {(o.status === "recebida" || o.status === "em_andamento") && (
                     <Button size="sm" variant="ghost" onClick={() => setStatus(o, "cancelada")}>
                       Cancelar
@@ -170,7 +249,15 @@ function EncordoamentoPage() {
       </div>
 
       <DeliverDialog order={delivering} products={products} onClose={() => setDelivering(null)} onDone={load} />
-      <NewOrderDialog open={dialog} onOpenChange={setDialog} products={products} userId={user?.id} onDone={load} />
+      <OrderDialog
+        open={dialog}
+        onOpenChange={setDialog}
+        order={editing}
+        products={products}
+        userId={user?.id}
+        canEditPrice={isAdmin}
+        onDone={load}
+      />
     </AppLayout>
   );
 }
@@ -372,19 +459,39 @@ function DeliverDialog({
   );
 }
 
-function NewOrderDialog({
+// Só dá para editar enquanto a ordem não foi cobrada nem cancelada.
+const EDITABLE: StringingOrder["status"][] = ["recebida", "em_andamento", "pronta"];
+
+const numStr = (n: number | null | undefined) => (n == null ? "" : String(n).replace(".", ","));
+
+// datetime-local espera "YYYY-MM-DDTHH:mm" no fuso local
+const toLocalInput = (iso: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+function OrderDialog({
   open,
   onOpenChange,
+  order,
   products,
   userId,
+  canEditPrice,
   onDone,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  order: StringingOrder | null;
   products: Product[];
   userId?: string;
+  canEditPrice: boolean;
   onDone: () => void;
 }) {
+  const isEdit = !!order;
+  // na criação qualquer um define o valor; depois de criada, só admin altera
+  const priceLocked = isEdit && !canEditPrice;
   const services = products.filter((p) => p.kind === "servico");
   const strings = products.filter((p) => p.kind === "produto");
   const [f, setF] = useState<Record<string, string>>({});
@@ -393,6 +500,22 @@ function NewOrderDialog({
 
   useEffect(() => {
     if (!open) return;
+    if (order) {
+      setServiceId(order.service_product_id);
+      setStringId(order.string_product_id);
+      setF({
+        customer_name: order.customer_name,
+        customer_phone: order.customer_phone ?? "",
+        racket: order.racket ?? "",
+        string_description: order.string_description ?? "",
+        tension_main: numStr(order.tension_main),
+        tension_cross: numStr(order.tension_cross),
+        due_at: toLocalInput(order.due_at),
+        price: numStr(order.price),
+        notes: order.notes ?? "",
+      });
+      return;
+    }
     const svc = services.find((s) => /encord/i.test(s.name)) ?? services[0];
     setServiceId(svc?.id ?? null);
     setStringId(null);
@@ -400,13 +523,15 @@ function NewOrderDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setF({ ...f, [k]: e.target.value });
 
   const save = async () => {
     if (!f.customer_name?.trim()) return toast.error("Informe o cliente");
-    if (!serviceId) return toast.error("Cadastre um serviço de encordoamento em Produtos (tipo Serviço)");
+    if (!serviceId)
+      return toast.error("Cadastre um serviço de encordoamento em Produtos (tipo Serviço)");
     const main = f.tension_main ? parseDecimal(f.tension_main) : null;
-    const { error } = await supabase.from("shop_stringing_orders").insert({
+    const data = {
       customer_name: f.customer_name.trim(),
       customer_phone: f.customer_phone?.trim() || null,
       racket: f.racket?.trim() || null,
@@ -418,10 +543,13 @@ function NewOrderDialog({
       due_at: f.due_at ? new Date(f.due_at).toISOString() : null,
       price: parseDecimal(f.price),
       notes: f.notes?.trim() || null,
-      created_by: userId,
-    });
+    };
+    if (priceLocked) delete (data as Partial<typeof data>).price;
+    const { error } = order
+      ? await supabase.from("shop_stringing_orders").update(data).eq("id", order.id)
+      : await supabase.from("shop_stringing_orders").insert({ ...data, created_by: userId });
     if (error) return toast.error(error.message);
-    toast.success("Ordem criada");
+    toast.success(order ? "Ordem atualizada" : "Ordem criada");
     onOpenChange(false);
     onDone();
   };
@@ -432,7 +560,9 @@ function NewOrderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Nova ordem de encordoamento</DialogTitle>
+          <DialogTitle>
+            {order ? `Editar ordem #${order.number}` : "Nova ordem de encordoamento"}
+          </DialogTitle>
         </DialogHeader>
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1">
@@ -441,11 +571,19 @@ function NewOrderDialog({
           </div>
           <div className="space-y-1">
             <Label>WhatsApp</Label>
-            <Input value={f.customer_phone ?? ""} onChange={set("customer_phone")} placeholder="(81) 99999-9999" />
+            <Input
+              value={f.customer_phone ?? ""}
+              onChange={set("customer_phone")}
+              placeholder="(81) 99999-9999"
+            />
           </div>
           <div className="space-y-1 md:col-span-2">
             <Label>Raquete</Label>
-            <Input value={f.racket ?? ""} onChange={set("racket")} placeholder="Ex.: Babolat Pure Aero 2023" />
+            <Input
+              value={f.racket ?? ""}
+              onChange={set("racket")}
+              placeholder="Ex.: Babolat Pure Aero 2023"
+            />
           </div>
           <div className="space-y-1 md:col-span-2">
             <Label>Serviço</Label>
@@ -455,7 +593,8 @@ function NewOrderDialog({
               onChange={(id) => {
                 setServiceId(id);
                 const s = services.find((x) => x.id === id);
-                if (s) setF({ ...f, price: String(s.sale_price).replace(".", ",") });
+                if (s && !priceLocked)
+                  setF({ ...f, price: String(s.sale_price).replace(".", ",") });
               }}
               placeholder="Escolher serviço…"
             />
@@ -463,7 +602,12 @@ function NewOrderDialog({
           <div className="space-y-1 md:col-span-2">
             <Label>Corda da loja (sai do estoque e é cobrada à parte)</Label>
             <div className="flex gap-2">
-              <ProductPicker products={strings} value={stringId} onChange={setStringId} placeholder="Nenhuma — cliente trouxe a corda" />
+              <ProductPicker
+                products={strings}
+                value={stringId}
+                onChange={setStringId}
+                placeholder="Nenhuma — cliente trouxe a corda"
+              />
               {stringId && (
                 <Button variant="ghost" size="sm" onClick={() => setStringId(null)}>
                   Limpar
@@ -479,7 +623,11 @@ function NewOrderDialog({
           {!stringId && (
             <div className="space-y-1 md:col-span-2">
               <Label>Corda do cliente</Label>
-              <Input value={f.string_description ?? ""} onChange={set("string_description")} placeholder="Ex.: Luxilon ALU Power 1.25" />
+              <Input
+                value={f.string_description ?? ""}
+                onChange={set("string_description")}
+                placeholder="Ex.: Luxilon ALU Power 1.25"
+              />
             </div>
           )}
           <div className="space-y-1">
@@ -488,7 +636,11 @@ function NewOrderDialog({
           </div>
           <div className="space-y-1">
             <Label>Tensão horizontais (lb)</Label>
-            <Input value={f.tension_cross ?? ""} onChange={set("tension_cross")} placeholder="igual" />
+            <Input
+              value={f.tension_cross ?? ""}
+              onChange={set("tension_cross")}
+              placeholder="igual"
+            />
           </div>
           <div className="space-y-1">
             <Label>Entrega</Label>
@@ -496,7 +648,10 @@ function NewOrderDialog({
           </div>
           <div className="space-y-1">
             <Label>Valor do serviço (R$)</Label>
-            <Input value={f.price ?? ""} onChange={set("price")} />
+            <Input value={f.price ?? ""} onChange={set("price")} disabled={priceLocked} />
+            {priceLocked && (
+              <p className="text-xs text-muted-foreground">Só administrador altera o valor.</p>
+            )}
           </div>
           <div className="space-y-1 md:col-span-2">
             <Label>Observações</Label>
@@ -504,7 +659,7 @@ function NewOrderDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={save}>Criar ordem</Button>
+          <Button onClick={save}>{order ? "Salvar alterações" : "Criar ordem"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
