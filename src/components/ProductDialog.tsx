@@ -220,7 +220,7 @@ export function ProductDialog({
               </div>
               {!product && (
                 <p className="self-end text-xs text-muted-foreground">
-                  O estoque entra pela nota fiscal. Produto novo começa com 0.
+                  Produto novo começa com 0. O estoque entra pela nota fiscal ou, sem nota, em Estoque → <b>+ Entrada</b> (com motivo).
                 </p>
               )}
               {product && (
