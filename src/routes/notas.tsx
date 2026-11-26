@@ -658,6 +658,8 @@ function NotasPage() {
                     const p = r?.productId ? byId.get(r.productId) : undefined;
                     const factor = p?.nf_unit_factor ?? 1;
                     const addQty = it.qty * factor;
+                    // nota em caixa/dúzia e produto sem conversão: provavelmente vai entrar a menos
+                    const unitMismatch = !!p && factor === 1 && !sameUnit(it.unit, p.unit);
                     const unitCost = costs[i] / factor;
                     // saldo e custo "antes desta nota" (na edição, tira o que a versão original lançou)
                     const o = editingId && p ? original[p.id] : undefined;
@@ -682,8 +684,19 @@ function NotasPage() {
                         <TableCell>
                           <Input className="h-8 text-right" defaultValue={dec(it.qty)} onBlur={(e) => setItem(i, { qty: parseDecimal(e.target.value) })} />
                           {p && factor !== 1 && (
-                            <div className="mt-1 text-right text-xs text-muted-foreground">
+                            <div
+                              className="mt-1 rounded bg-warning/20 px-1 text-right text-xs font-semibold text-warning-foreground"
+                              title="O cadastro do produto diz que 1 unidade da nota vira várias no estoque. Se não for caixa/rolo, corrija o cadastro antes de lançar."
+                            >
                               × {fmtNum(factor, 3)} = {fmtNum(addQty, 2)} {p.unit}
+                            </div>
+                          )}
+                          {unitMismatch && (
+                            <div
+                              className="mt-1 rounded bg-warning/20 px-1 text-right text-xs font-semibold text-warning-foreground"
+                              title="A nota vem numa unidade diferente da de venda. Se for caixa/dúzia, ajuste no cadastro do produto quantas unidades vêm em cada uma."
+                            >
+                              Nota em {it.unit}, venda em {p.unit}: 1 = 1?
                             </div>
                           )}
                         </TableCell>
@@ -798,7 +811,6 @@ function NotasPage() {
         prefill={prefill}
         cs={cs}
         targetMargin={target}
-        allowInitialStock={false}
         onSaved={async (p) => {
           const idx = creatingFor;
           await load();
@@ -811,6 +823,17 @@ function NotasPage() {
 }
 
 type Source = "pdf" | "xml" | "foto" | "manual";
+
+// unidades que significam "uma peça": não precisam de conversão
+const UNIT_ALIASES: Record<string, string> = { UND: "UN", UNID: "UN", UNIDADE: "UN", U: "UN", PC: "UN", PÇ: "UN", PCA: "UN", PECA: "UN", PEÇA: "UN" };
+const normUnit = (u: string | null | undefined) => {
+  const k = (u ?? "").trim().toUpperCase().replace(/[.\s]/g, "");
+  return UNIT_ALIASES[k] ?? k;
+};
+function sameUnit(nfUnit: string | null | undefined, saleUnit: string | null | undefined) {
+  const a = normUnit(nfUnit);
+  return !a || a === normUnit(saleUnit);
+}
 
 const SOURCE_LABEL: Record<Source, string> = {
   xml: "XML",
