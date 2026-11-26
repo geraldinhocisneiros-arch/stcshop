@@ -656,11 +656,11 @@ function NotasPage() {
                   {draft.items.map((it, i) => {
                     const r = rows[i];
                     const p = r?.productId ? byId.get(r.productId) : undefined;
-                    const factor = p?.nf_unit_factor ?? 1;
-                    const addQty = it.qty * factor;
-                    // nota em caixa/dúzia e produto sem conversão: provavelmente vai entrar a menos
-                    const unitMismatch = !!p && factor === 1 && !sameUnit(it.unit, p.unit);
-                    const unitCost = costs[i] / factor;
+                    // 1 da nota = 1 no estoque, sempre
+                    const addQty = it.qty;
+                    // nota em caixa/dúzia: vai entrar 1 por caixa
+                    const unitMismatch = !!p && !sameUnit(it.unit, p.unit);
+                    const unitCost = costs[i];
                     // saldo e custo "antes desta nota" (na edição, tira o que a versão original lançou)
                     const o = editingId && p ? original[p.id] : undefined;
                     const baseQty = p ? Number(p.stock_qty) - (o?.qty ?? 0) : 0;
@@ -683,20 +683,12 @@ function NotasPage() {
                         </TableCell>
                         <TableCell>
                           <Input className="h-8 text-right" defaultValue={dec(it.qty)} onBlur={(e) => setItem(i, { qty: parseDecimal(e.target.value) })} />
-                          {p && factor !== 1 && (
-                            <div
-                              className="mt-1 rounded bg-warning/20 px-1 text-right text-xs font-semibold text-warning-foreground"
-                              title="O cadastro do produto diz que 1 unidade da nota vira várias no estoque. Se não for caixa/rolo, corrija o cadastro antes de lançar."
-                            >
-                              × {fmtNum(factor, 3)} = {fmtNum(addQty, 2)} {p.unit}
-                            </div>
-                          )}
                           {unitMismatch && (
                             <div
                               className="mt-1 rounded bg-warning/20 px-1 text-right text-xs font-semibold text-warning-foreground"
-                              title="A nota vem numa unidade diferente da de venda. Se for caixa/dúzia, ajuste no cadastro do produto quantas unidades vêm em cada uma."
+                              title="Cada 1 da nota entra como 1 no estoque. Se a caixa/pacote tem várias unidades, corrija a quantidade e o valor unitário aqui."
                             >
-                              Nota em {it.unit}, venda em {p.unit}: 1 = 1?
+                              Nota em {it.unit}: entra {fmtNum(addQty, 2)} {p.unit}. Confira
                             </div>
                           )}
                         </TableCell>
@@ -709,11 +701,6 @@ function NotasPage() {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {fmtBRL(costs[i])}
-                          {p && factor !== 1 && (
-                            <div className="text-xs text-muted-foreground">
-                              {fmtBRL(unitCost)} por {p.unit}
-                            </div>
-                          )}
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1">

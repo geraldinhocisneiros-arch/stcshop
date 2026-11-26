@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ListPicker } from "@/components/ListPicker";
 import { supabase } from "@/integrations/supabase/client";
-import { fmtBRL, fmtNum, fmtPct, parseDecimal, round2 } from "@/lib/format";
+import { fmtBRL, fmtPct, parseDecimal, round2 } from "@/lib/format";
 import { analyzePrice, PRICE_STATUS_LABEL, type CostStructure } from "@/lib/pricing";
 import type { Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -40,15 +40,12 @@ export function ProductDialog({
   const [kind, setKind] = useState<"produto" | "servico">("produto");
   const [active, setActive] = useState(true);
   const [busy, setBusy] = useState(false);
-  // a conversão nota → venda fica escondida até alguém pedir: digitar quantidade aqui multiplica a entrada
-  const [showFactor, setShowFactor] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     const p = product;
     setKind(p?.kind ?? "produto");
     setActive(p?.active ?? true);
-    setShowFactor(Number(p?.nf_unit_factor ?? 1) !== 1);
     setF({
       name: str(p?.name ?? prefill?.name),
       nf_name: str(p?.nf_name ?? prefill?.nf_name),
@@ -57,7 +54,6 @@ export function ProductDialog({
       category: str(p?.category),
       brand: str(p?.brand),
       unit: str(p?.unit ?? prefill?.unit ?? "UN"),
-      nf_unit_factor: dec(p?.nf_unit_factor ?? 1),
       sale_price: dec(p?.sale_price),
       promo_price: dec(p?.promo_price),
       promo_until: str(p?.promo_until),
@@ -82,7 +78,6 @@ export function ProductDialog({
   const save = async () => {
     if (!f.name?.trim()) return toast.error("Informe o apelido do produto");
     if (stockChanged && !f.stock_reason?.trim()) return toast.error("Informe o motivo da alteração do estoque");
-    const factor = showFactor ? parseDecimal(f.nf_unit_factor) || 1 : 1;
     const row = {
       kind,
       active,
@@ -93,7 +88,7 @@ export function ProductDialog({
       category: f.category.trim() || null,
       brand: f.brand.trim() || null,
       unit: f.unit.trim() || "UN",
-      nf_unit_factor: factor,
+      nf_unit_factor: 1, // 1 da nota = 1 no estoque, sempre
       sale_price: round2(price),
       promo_price: f.promo_price.trim() ? round2(parseDecimal(f.promo_price)) : null,
       promo_until: f.promo_price.trim() && f.promo_until ? f.promo_until : null,
@@ -192,36 +187,6 @@ export function ProductDialog({
                 <Label>Unidade de venda</Label>
                 <Input value={f.unit ?? ""} onChange={set("unit")} placeholder="UN, TUBO, SET…" />
               </div>
-              {showFactor ? (
-                <div className="space-y-1 rounded-md border border-warning/50 bg-warning/10 p-2">
-                  <Label>Na nota vem em embalagem: 1 da nota vira quantas no estoque?</Label>
-                  <Input value={f.nf_unit_factor ?? ""} onChange={set("nf_unit_factor")} inputMode="decimal" />
-                  <p className="text-xs text-muted-foreground">
-                    Só para caixa/rolo. Ex.: rolo de corda que rende 16 encordoamentos = 16; caixa com 12 overgrips = 12.
-                    <b> Não é a quantidade comprada</b> — cada item da nota será <b>multiplicado</b> por este número.
-                  </p>
-                  {parseDecimal(f.nf_unit_factor) !== 1 && (
-                    <p className="text-xs font-semibold text-warning-foreground">
-                      Com {f.nf_unit_factor}: uma nota com 30 deste item dará entrada de{" "}
-                      {fmtNum(30 * (parseDecimal(f.nf_unit_factor) || 1))} no estoque.
-                    </p>
-                  )}
-                  <button
-                    type="button"
-                    className="text-xs text-muted-foreground underline"
-                    onClick={() => {
-                      setShowFactor(false);
-                      setF({ ...f, nf_unit_factor: "1" });
-                    }}
-                  >
-                    Não, vem por unidade (voltar para 1)
-                  </button>
-                </div>
-              ) : (
-                <button type="button" className="self-end text-left text-xs text-muted-foreground underline" onClick={() => setShowFactor(true)}>
-                  Na nota vem em caixa/rolo e vende por unidade?
-                </button>
-              )}
             </>
           )}
           <div className="space-y-1">
