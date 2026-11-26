@@ -28,7 +28,6 @@ export function ProductDialog({
   cs,
   targetMargin,
   onSaved,
-  allowInitialStock = true,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -37,7 +36,6 @@ export function ProductDialog({
   cs?: CostStructure | null;
   targetMargin?: number;
   onSaved: (p: Product) => void;
-  allowInitialStock?: boolean;
 }) {
   const { isAdmin } = useAuth();
   const [f, setF] = useState<Record<string, string>>({});
@@ -58,13 +56,11 @@ export function ProductDialog({
       category: str(p?.category),
       brand: str(p?.brand),
       unit: str(p?.unit ?? prefill?.unit ?? "UN"),
-      nf_unit_factor: dec(p?.nf_unit_factor ?? 1),
       sale_price: dec(p?.sale_price),
       promo_price: dec(p?.promo_price),
       promo_until: str(p?.promo_until),
       cost_price: dec(p?.cost_price ?? prefill?.cost_price),
       min_stock: dec(p?.min_stock ?? 0),
-      initial_stock: "",
       stock_qty: dec(p?.stock_qty ?? 0),
       stock_reason: "",
       notes: str(p?.notes),
@@ -83,7 +79,6 @@ export function ProductDialog({
   const save = async () => {
     if (!f.name?.trim()) return toast.error("Informe o apelido do produto");
     if (stockChanged && !f.stock_reason?.trim()) return toast.error("Informe o motivo da alteração do estoque");
-    const factor = parseDecimal(f.nf_unit_factor) || 1;
     const row: Record<string, unknown> = {
       kind,
       active,
@@ -94,7 +89,7 @@ export function ProductDialog({
       category: f.category.trim() || null,
       brand: f.brand.trim() || null,
       unit: f.unit.trim() || "UN",
-      nf_unit_factor: factor,
+      nf_unit_factor: 1, // 1 da nota = 1 no estoque, sempre
       sale_price: round2(price),
       promo_price: f.promo_price.trim() ? round2(parseDecimal(f.promo_price)) : null,
       promo_until: f.promo_price.trim() && f.promo_until ? f.promo_until : null,
@@ -120,18 +115,6 @@ export function ProductDialog({
       );
     }
     let saved = res.data as Product;
-    const initial = parseDecimal(f.initial_stock);
-    if (!product && kind === "produto" && initial > 0) {
-      const { error } = await supabase.rpc("shop_adjust_stock", {
-        p_product_id: saved.id,
-        p_kind: "entrada_manual",
-        p_qty: initial,
-        p_unit_cost: isAdmin ? cost || null : null,
-        p_notes: "Estoque inicial",
-      });
-      if (error) toast.error(`Produto salvo, mas o estoque inicial falhou: ${error.message}`);
-      else saved = { ...saved, stock_qty: initial };
-    }
     if (stockChanged) {
       // passa pela mesma função do ajuste de estoque, para ficar no histórico
       const { error } = await supabase.rpc("shop_adjust_stock", {
@@ -211,11 +194,6 @@ export function ProductDialog({
                 <Label>Unidade de venda</Label>
                 <Input value={f.unit ?? ""} onChange={set("unit")} placeholder="UN, TUBO, SET…" />
               </div>
-              <div className="space-y-1">
-                <Label>1 unidade da nota = quantas de venda?</Label>
-                <Input value={f.nf_unit_factor ?? ""} onChange={set("nf_unit_factor")} />
-                <p className="text-xs text-muted-foreground">Ex.: rolo de corda de 200 m que rende 16 encordoamentos = 16.</p>
-              </div>
             </>
           )}
           <div className="space-y-1">
@@ -254,11 +232,10 @@ export function ProductDialog({
                 <Label>Estoque mínimo</Label>
                 <Input value={f.min_stock ?? ""} onChange={set("min_stock")} />
               </div>
-              {!product && allowInitialStock && (
-                <div className="space-y-1">
-                  <Label>Estoque inicial</Label>
-                  <Input value={f.initial_stock ?? ""} onChange={set("initial_stock")} placeholder="0" />
-                </div>
+              {!product && (
+                <p className="self-end text-xs text-muted-foreground">
+                  Produto novo começa com 0. O estoque entra pela nota fiscal ou, sem nota, em Estoque → <b>+ Entrada</b> (com motivo).
+                </p>
               )}
               {product && (
                 <div className="space-y-1">
