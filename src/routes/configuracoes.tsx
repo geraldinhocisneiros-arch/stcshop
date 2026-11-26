@@ -1,5 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -7,13 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import { errMsg, loadMethods, loadSettings } from "@/lib/data";
 import { parseDecimal } from "@/lib/format";
-import { createShopUser, removeShopUser } from "@/lib/users.functions";
 import type { PaymentMethod, ShopSettings } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -34,31 +30,19 @@ const FIELDS: Array<{ key: keyof ShopSettings; label: string; hint: string }> = 
   { key: "max_promo_discount_pct", label: "Desconto máximo de promoção (%)", hint: "Teto do desconto sugerido." },
 ];
 
-interface ShopUser {
-  user_id: string;
-  full_name: string;
-  role: "admin" | "vendedor";
-}
-
 function ConfigPage() {
-  const { user } = useAuth();
-  const createUser = useServerFn(createShopUser);
-  const removeUser = useServerFn(removeShopUser);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [allowNegative, setAllowNegative] = useState(false);
   const [pixKey, setPixKey] = useState("");
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [users, setUsers] = useState<ShopUser[]>([]);
-  const [nu, setNu] = useState({ fullName: "", email: "", password: "", role: "vendedor" as "admin" | "vendedor" });
 
   const load = useCallback(async () => {
     try {
-      const [s, m, u] = await Promise.all([loadSettings(), loadMethods(), supabase.from("shop_user_roles").select("*").order("full_name")]);
+      const [s, m] = await Promise.all([loadSettings(), loadMethods()]);
       setSettings(Object.fromEntries(FIELDS.map((f) => [f.key, String(s[f.key]).replace(".", ",")])));
       setAllowNegative(s.allow_negative_stock);
       setPixKey(s.pix_key ?? "");
       setMethods(m);
-      setUsers((u.data ?? []) as ShopUser[]);
     } catch (e) {
       toast.error(errMsg(e));
     }
@@ -159,66 +143,11 @@ function ConfigPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Usuários</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="divide-y rounded-md border">
-                {users.map((u) => (
-                  <div key={u.user_id} className="flex items-center justify-between p-2 text-sm">
-                    <div>
-                      {u.full_name} <span className="text-xs text-muted-foreground">· {u.role === "admin" ? "Administrador" : "Vendedor"}</span>
-                    </div>
-                    {u.user_id !== user?.id && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive"
-                        onClick={async () => {
-                          try {
-                            await removeUser({ data: { userId: u.user_id } });
-                            toast.success("Acesso removido");
-                            load();
-                          } catch (e) {
-                            toast.error(errMsg(e));
-                          }
-                        }}
-                      >
-                        Remover
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                <Input placeholder="Nome" value={nu.fullName} onChange={(e) => setNu({ ...nu, fullName: e.target.value })} />
-                <Input placeholder="E-mail" type="email" value={nu.email} onChange={(e) => setNu({ ...nu, email: e.target.value })} />
-                <Input placeholder="Senha (mín. 6)" type="password" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} />
-                <Select value={nu.role} onValueChange={(v) => setNu({ ...nu, role: v as "admin" | "vendedor" })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="vendedor">Vendedor (caixa, vendas, encordoamento)</SelectItem>
-                    <SelectItem value="admin">Administrador (tudo)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                onClick={async () => {
-                  try {
-                    const r = await createUser({ data: nu });
-                    toast.success(r.existed ? "E-mail já existia: acesso à loja liberado" : "Usuário criado");
-                    setNu({ fullName: "", email: "", password: "", role: "vendedor" });
-                    load();
-                  } catch (e) {
-                    toast.error(errMsg(e));
-                  }
-                }}
-              >
-                Adicionar usuário
+            <CardContent className="space-y-2 text-sm">
+              <p className="text-muted-foreground">Criar usuários, trocar senha, mudar papel e remover acesso.</p>
+              <Button asChild variant="outline">
+                <Link to="/usuarios">Abrir Usuários</Link>
               </Button>
-              <p className="text-xs text-muted-foreground">
-                Se o e-mail já tiver login (ex.: no sistema da academia, quando o Supabase é o mesmo), ele só ganha acesso à loja e
-                continua com a mesma senha.
-              </p>
             </CardContent>
           </Card>
         </div>
