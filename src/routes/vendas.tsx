@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { endOfDayISO, fmtBRL, fmtDateTime, fmtNum, isoDay, startOfDayISO } from "@/lib/format";
 import { loadMethods } from "@/lib/data";
-import type { PaymentMethod, Sale, SaleEdit, SaleSnapshot } from "@/lib/types";
+import type { CustomerEntry, PaymentMethod, Sale, SaleEdit, SaleSnapshot } from "@/lib/types";
 import { SaleEditDialog } from "@/components/SaleEditDialog";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -26,12 +26,16 @@ interface SaleDetail extends Sale {
   shop_sale_payments: Array<{ id: string; method: string; amount: number; fee_amount: number }>;
 }
 
+/** Pagamento de pendência (fiado): entra no caixa, mas não é venda nova nem mexe no estoque. */
+type Receipt = CustomerEntry & { shop_customers: { name: string } | null };
+
 function VendasPage() {
   const today = isoDay(new Date());
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [sales, setSales] = useState<SaleDetail[]>([]);
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [open, setOpen] = useState<SaleDetail | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [editing, setEditing] = useState<SaleDetail | null>(null);
@@ -48,6 +52,25 @@ function VendasPage() {
       .limit(1000);
     if (error) return toast.error(error.message);
     setSales((data ?? []) as SaleDetail[]);
+
+    // recebimentos de pendências no período (os estornados ficam de fora, como no fechamento do caixa)
+    const r = await supabase
+      .from("shop_customer_entries")
+      .select("*, shop_customers(name)")
+      .eq("kind", "pagamento")
+      .gte("created_at", startOfDayISO(from))
+      .lte("created_at", endOfDayISO(to))
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (r.error) return toast.error(r.error.message);
+    const paid = (r.data ?? []) as Receipt[];
+    let reversed = new Set<string>();
+    if (paid.length) {
+      const rev = await supabase.from("shop_customer_entries").select("reverses_id").in("reverses_id", paid.map((p) => p.id));
+      if (rev.error) return toast.error(rev.error.message);
+      reversed = new Set((rev.data ?? []).map((x) => x.reverses_id as string));
+    }
+    setReceipts(paid.filter((p) => !reversed.has(p.id)));
   }, [from, to]);
   useEffect(() => {
     load();
@@ -73,6 +96,13 @@ function VendasPage() {
   const label = (c: string) => methods.find((m) => m.code === c)?.label ?? c;
   const done = sales.filter((s) => s.status === "concluida");
   const total = done.reduce((s, x) => s + Number(x.total), 0);
+  // fiado vendido no período: é venda, mas o dinheiro ainda não entrou
+  const onAccount = done.reduce(
+    (s, x) => s + x.shop_sale_payments.filter((p) => p.method === "conta").reduce((t, p) => t + Number(p.amount), 0),
+    0,
+  );
+  const received = receipts.reduce((s, r) => s + Number(r.amount), 0);
+  const cashIn = total - onAccount + received;
 
   return (
     <AppLayout title="Vendas">
@@ -85,9 +115,22 @@ function VendasPage() {
           <Label className="text-xs">Até</Label>
           <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
-        <div className="ml-auto text-right text-sm">
-          <div className="text-muted-foreground">{done.length} vendas</div>
-          <div className="text-xl font-semibold">{fmtBRL(total)}</div>
+        <div className="ml-auto flex flex-wrap gap-6 text-right text-sm">
+          <div>
+            <div className="text-muted-foreground">{done.length} vendas</div>
+            <div className="text-xl font-semibold">{fmtBRL(total)}</div>
+            {onAccount > 0 && <div className="text-xs text-muted-foreground">{fmtBRL(onAccount)} no fiado</div>}
+          </div>
+          {receipts.length > 0 && (
+            <div>
+              <div className="text-muted-foreground">{receipts.length} recebimentos de pendência</div>
+              <div className="text-xl font-semibold">{fmtBRL(received)}</div>
+            </div>
+          )}
+          <div>
+            <div className="text-muted-foreground">Entrou no caixa</div>
+            <div className="text-xl font-semibold text-primary">{fmtBRL(cashIn)}</div>
+          </div>
         </div>
       </div>
       <Card>
@@ -104,6 +147,20 @@ function VendasPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {receipts.map((r) => (
+                <TableRow key={r.id} className="bg-muted/30">
+                  <TableCell>
+                    <Badge variant="secondary">recebimento</Badge>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{fmtDateTime(r.created_at)}</TableCell>
+                  <TableCell>{r.shop_customers?.name ?? "—"}</TableCell>
+                  <TableCell className="max-w-72 truncate text-sm text-muted-foreground">
+                    Pagamento de pendência{r.notes ? ` — ${r.notes}` : ""}
+                  </TableCell>
+                  <TableCell className="text-sm">{r.method ? label(r.method) : "—"}</TableCell>
+                  <TableCell className="text-right font-medium">{fmtBRL(r.amount)}</TableCell>
+                </TableRow>
+              ))}
               {sales.map((s) => (
                 <TableRow key={s.id} className="cursor-pointer" onClick={() => setOpen(s)}>
                   <TableCell>
@@ -130,10 +187,10 @@ function VendasPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {sales.length === 0 && (
+              {sales.length === 0 && receipts.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Nenhuma venda no período.
+                    Nenhuma venda ou recebimento no período.
                   </TableCell>
                 </TableRow>
               )}
