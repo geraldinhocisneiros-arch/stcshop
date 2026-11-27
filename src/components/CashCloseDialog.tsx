@@ -131,10 +131,16 @@ export function CashCloseDialog({
                   Vendido na conta de clientes (fiado): <b>{fmtBRL(summary.on_account)}</b> — não entra no caixa, fica em Pendências.
                 </p>
               )}
+              {(summary.secretaria ?? 0) > 0 && (
+                <p className="text-xs">
+                  Lançado na secretaria: <b>{fmtBRL(summary.secretaria)}</b> — não entra no caixa; a secretaria da academia cobra e repassa.
+                </p>
+              )}
               {summary.receipts && Object.keys(summary.receipts).length > 0 && (
                 <p className="text-xs">
                   Recebido de dívidas de clientes (já somado no esperado):{" "}
                   {Object.entries(summary.receipts)
+                    .filter(([k]) => k !== "secretaria")
                     .map(([k, v]) => `${label(k)} ${fmtBRL(v)}`)
                     .join(" · ")}
                 </p>

@@ -6,25 +6,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { endOfDayISO, fmtBRL, fmtDateTime, fmtNum, isoDay, startOfDayISO } from "@/lib/format";
 import { loadMethods } from "@/lib/data";
-import type { CustomerEntry, PaymentMethod, Sale } from "@/lib/types";
+import type { CustomerEntry, PaymentMethod, Sale, SaleEdit, SaleSnapshot } from "@/lib/types";
+import { SaleEditDialog } from "@/components/SaleEditDialog";
+import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/vendas")({
@@ -33,14 +22,7 @@ export const Route = createFileRoute("/vendas")({
 });
 
 interface SaleDetail extends Sale {
-  shop_sale_items: Array<{
-    id: string;
-    description: string;
-    qty: number;
-    unit_price: number;
-    discount: number;
-    total: number;
-  }>;
+  shop_sale_items: Array<{ id: string; product_id: string; description: string; qty: number; unit_price: number; discount: number; total: number }>;
   shop_sale_payments: Array<{ id: string; method: string; amount: number; fee_amount: number }>;
 }
 
@@ -56,57 +38,71 @@ function VendasPage() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [open, setOpen] = useState<SaleDetail | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [editing, setEditing] = useState<SaleDetail | null>(null);
+  const [history, setHistory] = useState<SaleEdit[]>([]);
+  const [names, setNames] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
-    const [s, r] = await Promise.all([
-      supabase
-        .from("shop_sales")
-        .select("*, shop_sale_items(*), shop_sale_payments(*)")
-        .gte("created_at", startOfDayISO(from))
-        .lte("created_at", endOfDayISO(to))
-        .order("created_at", { ascending: false })
-        .limit(1000),
-      supabase
-        .from("shop_customer_entries")
-        .select("*, shop_customers(name)")
-        .eq("kind", "pagamento")
-        .gte("created_at", startOfDayISO(from))
-        .lte("created_at", endOfDayISO(to))
-        .order("created_at", { ascending: false })
-        .limit(1000),
-    ]);
-    if (s.error) return toast.error(s.error.message);
+    const { data, error } = await supabase
+      .from("shop_sales")
+      .select("*, shop_sale_items(*), shop_sale_payments(*)")
+      .gte("created_at", startOfDayISO(from))
+      .lte("created_at", endOfDayISO(to))
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (error) return toast.error(error.message);
+    setSales((data ?? []) as SaleDetail[]);
+
+    // recebimentos de pendências no período (os estornados ficam de fora, como no fechamento do caixa)
+    const r = await supabase
+      .from("shop_customer_entries")
+      .select("*, shop_customers(name)")
+      .eq("kind", "pagamento")
+      .gte("created_at", startOfDayISO(from))
+      .lte("created_at", endOfDayISO(to))
+      .order("created_at", { ascending: false })
+      .limit(1000);
     if (r.error) return toast.error(r.error.message);
-    setSales((s.data ?? []) as SaleDetail[]);
-    setReceipts((r.data ?? []) as Receipt[]);
+    const paid = (r.data ?? []) as Receipt[];
+    let reversed = new Set<string>();
+    if (paid.length) {
+      const rev = await supabase.from("shop_customer_entries").select("reverses_id").in("reverses_id", paid.map((p) => p.id));
+      if (rev.error) return toast.error(rev.error.message);
+      reversed = new Set((rev.data ?? []).map((x) => x.reverses_id as string));
+    }
+    setReceipts(paid.filter((p) => !reversed.has(p.id)));
   }, [from, to]);
   useEffect(() => {
     load();
   }, [load]);
   useEffect(() => {
     loadMethods().then(setMethods);
+    supabase
+      .from("shop_user_roles")
+      .select("user_id, full_name")
+      .then(({ data }) => setNames(Object.fromEntries((data ?? []).map((u) => [u.user_id, u.full_name]))));
   }, []);
+  useEffect(() => {
+    setHistory([]);
+    if (!open?.edit_count) return;
+    supabase
+      .from("shop_sale_edits")
+      .select("*")
+      .eq("sale_id", open.id)
+      .order("edited_at", { ascending: false })
+      .then(({ data, error }) => (error ? toast.error(error.message) : setHistory((data ?? []) as SaleEdit[])));
+  }, [open]);
 
   const label = (c: string) => methods.find((m) => m.code === c)?.label ?? c;
   const done = sales.filter((s) => s.status === "concluida");
   const total = done.reduce((s, x) => s + Number(x.total), 0);
   // fiado vendido no período: é venda, mas o dinheiro ainda não entrou
   const onAccount = done.reduce(
-    (s, x) =>
-      s +
-      x.shop_sale_payments
-        .filter((p) => p.method === "conta")
-        .reduce((t, p) => t + Number(p.amount), 0),
+    (s, x) => s + x.shop_sale_payments.filter((p) => p.method === "conta").reduce((t, p) => t + Number(p.amount), 0),
     0,
   );
   const received = receipts.reduce((s, r) => s + Number(r.amount), 0);
   const cashIn = total - onAccount + received;
-
-  // vendas e recebimentos juntos, do mais recente para o mais antigo
-  const rows = [
-    ...sales.map((s) => ({ type: "venda" as const, at: s.created_at, sale: s })),
-    ...receipts.map((r) => ({ type: "recebimento" as const, at: r.created_at, receipt: r })),
-  ].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
     <AppLayout title="Vendas">
@@ -123,15 +119,11 @@ function VendasPage() {
           <div>
             <div className="text-muted-foreground">{done.length} vendas</div>
             <div className="text-xl font-semibold">{fmtBRL(total)}</div>
-            {onAccount > 0 && (
-              <div className="text-xs text-muted-foreground">{fmtBRL(onAccount)} no fiado</div>
-            )}
+            {onAccount > 0 && <div className="text-xs text-muted-foreground">{fmtBRL(onAccount)} no fiado</div>}
           </div>
           {receipts.length > 0 && (
             <div>
-              <div className="text-muted-foreground">
-                {receipts.length} recebimentos de pendência
-              </div>
+              <div className="text-muted-foreground">{receipts.length} recebimentos de pendência</div>
               <div className="text-xl font-semibold">{fmtBRL(received)}</div>
             </div>
           )}
@@ -155,56 +147,47 @@ function VendasPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => {
-                if (row.type === "recebimento") {
-                  const r = row.receipt;
-                  return (
-                    <TableRow key={r.id} className="bg-muted/30">
-                      <TableCell>
-                        <Badge variant="secondary">recebimento</Badge>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        {fmtDateTime(r.created_at)}
-                      </TableCell>
-                      <TableCell>{r.shop_customers?.name ?? "—"}</TableCell>
-                      <TableCell className="max-w-72 truncate text-sm text-muted-foreground">
-                        Pagamento de pendência{r.notes ? ` — ${r.notes}` : ""}
-                      </TableCell>
-                      <TableCell className="text-sm">{r.method ? label(r.method) : "—"}</TableCell>
-                      <TableCell className="text-right font-medium">{fmtBRL(r.amount)}</TableCell>
-                    </TableRow>
-                  );
-                }
-                const s = row.sale;
-                return (
-                  <TableRow key={s.id} className="cursor-pointer" onClick={() => setOpen(s)}>
-                    <TableCell>
-                      {s.number}
-                      {s.status === "cancelada" && (
-                        <Badge variant="destructive" className="ml-2">
-                          cancelada
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{fmtDateTime(s.created_at)}</TableCell>
-                    <TableCell>{s.customer_name ?? "—"}</TableCell>
-                    <TableCell className="max-w-72 truncate text-sm">
-                      {s.shop_sale_items
-                        .map((i) => `${fmtNum(i.qty, 2)}× ${i.description}`)
-                        .join(", ")}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {s.shop_sale_payments.map((p) => label(p.method)).join(" + ")}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right font-medium ${s.status === "cancelada" ? "line-through opacity-50" : ""}`}
-                    >
-                      {fmtBRL(s.total)}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {rows.length === 0 && (
+              {receipts.map((r) => (
+                <TableRow key={r.id} className="bg-muted/30">
+                  <TableCell>
+                    <Badge variant="secondary">recebimento</Badge>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{fmtDateTime(r.created_at)}</TableCell>
+                  <TableCell>{r.shop_customers?.name ?? "—"}</TableCell>
+                  <TableCell className="max-w-72 truncate text-sm text-muted-foreground">
+                    Pagamento de pendência{r.notes ? ` — ${r.notes}` : ""}
+                  </TableCell>
+                  <TableCell className="text-sm">{r.method ? label(r.method) : "—"}</TableCell>
+                  <TableCell className="text-right font-medium">{fmtBRL(r.amount)}</TableCell>
+                </TableRow>
+              ))}
+              {sales.map((s) => (
+                <TableRow key={s.id} className="cursor-pointer" onClick={() => setOpen(s)}>
+                  <TableCell>
+                    {s.number}
+                    {s.status === "cancelada" && (
+                      <Badge variant="destructive" className="ml-2">
+                        cancelada
+                      </Badge>
+                    )}
+                    {s.status !== "cancelada" && !!s.edit_count && (
+                      <Badge variant="secondary" className="ml-2" title={`Alterada em ${fmtDateTime(s.edited_at)}`}>
+                        editada
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{fmtDateTime(s.created_at)}</TableCell>
+                  <TableCell>{s.customer_name ?? "—"}</TableCell>
+                  <TableCell className="max-w-72 truncate text-sm">
+                    {s.shop_sale_items.map((i) => `${fmtNum(i.qty, 2)}× ${i.description}`).join(", ")}
+                  </TableCell>
+                  <TableCell className="text-sm">{s.shop_sale_payments.map((p) => label(p.method)).join(" + ")}</TableCell>
+                  <TableCell className={`text-right font-medium ${s.status === "cancelada" ? "line-through opacity-50" : ""}`}>
+                    {fmtBRL(s.total)}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {sales.length === 0 && receipts.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                     Nenhuma venda ou recebimento no período.
@@ -238,34 +221,39 @@ function VendasPage() {
                 {open.shop_sale_items.map((i) => (
                   <div key={i.id} className="flex justify-between p-2">
                     <span>
-                      {fmtNum(i.qty, 2)}× {i.description}{" "}
-                      <span className="text-muted-foreground">({fmtBRL(i.unit_price)})</span>
+                      {fmtNum(i.qty, 2)}× {i.description} <span className="text-muted-foreground">({fmtBRL(i.unit_price)})</span>
                     </span>
-                    <span className="tabular-nums">
-                      {fmtBRL(Number(i.total) + Number(i.discount))}
-                    </span>
+                    <span className="tabular-nums">{fmtBRL(Number(i.total) + Number(i.discount))}</span>
                   </div>
                 ))}
               </div>
-              {Number(open.discount) > 0 && (
-                <div className="text-right">Desconto: − {fmtBRL(open.discount)}</div>
-              )}
+              {Number(open.discount) > 0 && <div className="text-right">Desconto: − {fmtBRL(open.discount)}</div>}
               <div className="text-right text-lg font-semibold">Total: {fmtBRL(open.total)}</div>
               <div>
                 {open.shop_sale_payments.map((p) => (
                   <div key={p.id} className="flex justify-between">
                     <span>{label(p.method)}</span>
                     <span className="tabular-nums">
-                      {fmtBRL(p.amount)}{" "}
-                      {Number(p.fee_amount) > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          (taxa {fmtBRL(p.fee_amount)})
-                        </span>
-                      )}
+                      {fmtBRL(p.amount)} {Number(p.fee_amount) > 0 && <span className="text-xs text-muted-foreground">(taxa {fmtBRL(p.fee_amount)})</span>}
                     </span>
                   </div>
                 ))}
               </div>
+              {history.length > 0 && (
+                <div className="space-y-2 rounded-md border p-2">
+                  <div className="font-medium">Histórico de alterações</div>
+                  {history.map((h) => (
+                    <div key={h.id} className="space-y-0.5 border-t pt-2 text-xs first:border-t-0 first:pt-0">
+                      <div>
+                        <b>{fmtDateTime(h.edited_at)}</b>
+                        {h.edited_by && names[h.edited_by] ? ` · ${names[h.edited_by]}` : ""} — {h.reason}
+                      </div>
+                      <div className="text-muted-foreground">Antes: {describeSnapshot(h.before, label)}</div>
+                      <div className="text-muted-foreground">Depois: {describeSnapshot(h.after, label)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {open.status === "cancelada" ? (
                 <div className="rounded-md bg-destructive/10 p-2 text-destructive">
                   Cancelada em {fmtDateTime(open.canceled_at)} — {open.cancel_reason}
@@ -273,24 +261,20 @@ function VendasPage() {
               ) : (
                 <div className="space-y-1 border-t pt-3">
                   <Label>Cancelar venda (devolve os itens ao estoque)</Label>
-                  <Input
-                    placeholder="Motivo do cancelamento"
-                    value={cancelReason}
-                    onChange={(e) => setCancelReason(e.target.value)}
-                  />
+                  <Input placeholder="Motivo do cancelamento" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
                 </div>
               )}
             </div>
             {open.status !== "cancelada" && (
-              <DialogFooter>
+              <DialogFooter className="gap-2 sm:justify-between">
+                <Button variant="outline" onClick={() => setEditing(open)}>
+                  <Pencil className="mr-1 h-4 w-4" /> Editar venda
+                </Button>
                 <Button
                   variant="destructive"
                   disabled={!cancelReason.trim()}
                   onClick={async () => {
-                    const { error } = await supabase.rpc("shop_cancel_sale", {
-                      p_sale_id: open.id,
-                      p_reason: cancelReason,
-                    });
+                    const { error } = await supabase.rpc("shop_cancel_sale", { p_sale_id: open.id, p_reason: cancelReason });
                     if (error) return toast.error(error.message);
                     toast.success("Venda cancelada e estoque devolvido");
                     setOpen(null);
@@ -305,6 +289,25 @@ function VendasPage() {
           </DialogContent>
         )}
       </Dialog>
+
+      <SaleEditDialog
+        sale={editing}
+        methods={methods}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          setOpen(null);
+          load();
+        }}
+      />
     </AppLayout>
   );
+}
+
+function describeSnapshot(s: SaleSnapshot, label: (code: string) => string) {
+  const items = s.items.map((i) => `${fmtNum(i.qty, 2)}× ${i.description} (${fmtBRL(i.unit_price)})`).join(", ");
+  const pays = s.payments.map((p) => `${label(p.method)} ${fmtBRL(p.amount)}`).join(" + ");
+  const disc = Number(s.discount) > 0 ? ` · desc. ${fmtBRL(s.discount)}` : "";
+  const who = s.customer_name ? ` · ${s.customer_name}` : "";
+  return `${items}${disc} = ${fmtBRL(s.total)} · ${pays}${who}`;
 }

@@ -656,9 +656,11 @@ function NotasPage() {
                   {draft.items.map((it, i) => {
                     const r = rows[i];
                     const p = r?.productId ? byId.get(r.productId) : undefined;
-                    const factor = p?.nf_unit_factor ?? 1;
-                    const addQty = it.qty * factor;
-                    const unitCost = costs[i] / factor;
+                    // 1 da nota = 1 no estoque, sempre
+                    const addQty = it.qty;
+                    // nota em caixa/dúzia: vai entrar 1 por caixa
+                    const unitMismatch = !!p && !sameUnit(it.unit, p.unit);
+                    const unitCost = costs[i];
                     // saldo e custo "antes desta nota" (na edição, tira o que a versão original lançou)
                     const o = editingId && p ? original[p.id] : undefined;
                     const baseQty = p ? Number(p.stock_qty) - (o?.qty ?? 0) : 0;
@@ -681,9 +683,12 @@ function NotasPage() {
                         </TableCell>
                         <TableCell>
                           <Input className="h-8 text-right" defaultValue={dec(it.qty)} onBlur={(e) => setItem(i, { qty: parseDecimal(e.target.value) })} />
-                          {p && factor !== 1 && (
-                            <div className="mt-1 text-right text-xs text-muted-foreground">
-                              × {fmtNum(factor, 3)} = {fmtNum(addQty, 2)} {p.unit}
+                          {unitMismatch && (
+                            <div
+                              className="mt-1 rounded bg-warning/20 px-1 text-right text-xs font-semibold text-warning-foreground"
+                              title="Cada 1 da nota entra como 1 no estoque. Se a caixa/pacote tem várias unidades, corrija a quantidade e o valor unitário aqui."
+                            >
+                              Nota em {it.unit}: entra {fmtNum(addQty, 2)} {p.unit}. Confira
                             </div>
                           )}
                         </TableCell>
@@ -696,11 +701,6 @@ function NotasPage() {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {fmtBRL(costs[i])}
-                          {p && factor !== 1 && (
-                            <div className="text-xs text-muted-foreground">
-                              {fmtBRL(unitCost)} por {p.unit}
-                            </div>
-                          )}
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1">
@@ -798,7 +798,6 @@ function NotasPage() {
         prefill={prefill}
         cs={cs}
         targetMargin={target}
-        allowInitialStock={false}
         onSaved={async (p) => {
           const idx = creatingFor;
           await load();
@@ -811,6 +810,17 @@ function NotasPage() {
 }
 
 type Source = "pdf" | "xml" | "foto" | "manual";
+
+// unidades que significam "uma peça": não precisam de conversão
+const UNIT_ALIASES: Record<string, string> = { UND: "UN", UNID: "UN", UNIDADE: "UN", U: "UN", PC: "UN", PÇ: "UN", PCA: "UN", PECA: "UN", PEÇA: "UN" };
+const normUnit = (u: string | null | undefined) => {
+  const k = (u ?? "").trim().toUpperCase().replace(/[.\s]/g, "");
+  return UNIT_ALIASES[k] ?? k;
+};
+function sameUnit(nfUnit: string | null | undefined, saleUnit: string | null | undefined) {
+  const a = normUnit(nfUnit);
+  return !a || a === normUnit(saleUnit);
+}
 
 const SOURCE_LABEL: Record<Source, string> = {
   xml: "XML",

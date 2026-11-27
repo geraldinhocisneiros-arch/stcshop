@@ -73,6 +73,8 @@ export interface SaleLine {
   unit_cost: number;
   cost_total: number;
   fee_share: number;
+  list_price: number | null; // preço de tabela no momento da venda (vazio em vendas antigas)
+  sold_by: string | null;
 }
 
 export interface Sale {
@@ -91,6 +93,29 @@ export interface Sale {
   created_at: string;
   canceled_at: string | null;
   cancel_reason: string | null;
+  customer_id?: string | null;
+  edited_at?: string | null;
+  edit_count?: number;
+}
+
+export interface SaleSnapshot {
+  customer_id: string | null;
+  customer_name: string | null;
+  subtotal: number;
+  discount: number;
+  total: number;
+  items: Array<{ product_id: string; description: string; qty: number; unit_price: number }>;
+  payments: Array<{ method: string; amount: number }>;
+}
+
+export interface SaleEdit {
+  id: string;
+  sale_id: string;
+  reason: string;
+  before: SaleSnapshot;
+  after: SaleSnapshot;
+  edited_by: string | null;
+  edited_at: string;
 }
 
 export interface CashSession {
@@ -126,6 +151,7 @@ export interface CashSummary {
   receipts?: Record<string, number>;
   /** vendido na conta do cliente (fiado) neste caixa */
   on_account?: number;
+  secretaria?: number;
 }
 
 export interface StringingOrder {
@@ -192,11 +218,13 @@ export interface Customer {
 export interface CustomerEntry {
   id: string;
   customer_id: string;
-  kind: "debito" | "pagamento" | "estorno" | "ajuste_debito" | "ajuste_credito";
+  kind: "debito" | "pagamento" | "estorno" | "ajuste_debito" | "ajuste_credito" | "estorno_pagamento";
   amount: number;
   sale_id: string | null;
   session_id: string | null;
   method: string | null;
   notes: string | null;
+  /** num estorno de pagamento: o pagamento que ele desfaz */
+  reverses_id?: string | null;
   created_at: string;
 }
